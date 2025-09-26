@@ -1,0 +1,65 @@
+# CodeLab Hints and Tips Demo
+
+This file demonstrates the new hints, warnings, and info message features.
+
+## Setup Instructions
+
+First, let's configure your environment:
+
+`API_KEY: Get your API key from the dashboard settings` {{ hint }}
+
+`NODE_ENV=production` {{ execute }}
+
+## Important Notes
+
+`This operation will delete all existing data!` {{ warning }}
+
+Before proceeding, make sure you have a backup:
+
+`npm run backup` {{ execute }}
+
+## Additional Information
+
+`For more details, check the documentation at docs.example.com` {{ info }}
+
+## Mixed Example
+
+Here's a complete workflow with hints and commands:
+
+`PROJECT_NAME: Choose a unique name for your project` {{ hint }}
+
+`npm init -y` {{ execute }}
+
+`Installing packages may take several minutes` {{ info }}
+
+`npm install express mongoose` {{ execute }}
+
+`Never commit your .env file to version control` {{ warning }}
+
+`echo ".env" >> .gitignore` {{ execute }}
+
+## Tips for Different Scenarios
+
+### Development Setup
+
+`PORT: Usually 3000 for development, 8080 for production` {{ hint }}
+
+### Security Notes
+
+`Always use environment variables for sensitive data` {{ warning }}
+
+### Troubleshooting
+
+`If the server doesn't start, check if the port is already in use` {{ info }}
+
+`lsof -i :3000` {{ execute }}
+
+## Testing the Features
+
+Try clicking the commands above and notice how the hints, warnings, and info messages are displayed with distinct styling and icons:
+
+- 💡 **Hints** appear with a yellow theme
+- ⚠️ **Warnings** appear with an orange theme
+- ℹ️ **Info** messages appear with a blue theme
+
+Each message type helps guide users through your documentation with appropriate context and visual cues.

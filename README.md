@@ -80,6 +80,21 @@ echo "Command 2"
 echo "Command 3"
 ```
 
+#### Show Hints, Info, and Warnings
+
+Add contextual tags to provide additional information:
+
+```
+`This is a hint message` {{ hint }}
+```
+```
+`This is an info message` {{ info }}
+```
+```
+`This is a warning message` {{ warning }}
+```
+
+
 ### Live Preview Panel
 - Automatically opens when viewing `.mdcl` files
 - Side-by-side view with the source markdown
@@ -177,6 +192,11 @@ CodeLab uses `.mdcl` files (Markdown CodeLab) which are standard markdown files 
 - Single "Run All" button for entire block
 
 ## Release Notes
+
+### 1.1.0
+
+Latest features:
+- Add Hint, Info and Warning tags for additional context in MDCL file previews
 
 ### 1.0.0
 

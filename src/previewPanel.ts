@@ -199,6 +199,20 @@ export class MDCLPreviewPanel {
             return this.createCommandButton(command, action, quotedTerminal, unquotedTerminal, interrupt);
         });
 
+        // Process hints, warnings, and info messages
+        const messageRegex = /<code>([^<]+)<\/code>\s*\{\{\s*(hint|warning|info)\s*\}\}/g;
+
+        htmlContent = htmlContent.replace(messageRegex, (match, message, type) => {
+            const unescapedMessage = message
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&amp;/g, '&');
+
+            return this.createMessageBox(unescapedMessage, type);
+        });
+
         // Process commands inside regular code blocks (for individual command buttons)
         const codeBlockRegex = /<pre><code[^>]*>([^<]*)<\/code><\/pre>/g;
 
@@ -416,6 +430,41 @@ export class MDCLPreviewPanel {
                         font-size: 10px;
                         font-weight: bold;
                     }
+                    .message-box {
+                        display: inline-flex;
+                        align-items: center;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        margin: 4px 0;
+                        font-size: 14px;
+                        line-height: 1.5;
+                        border: 1px solid;
+                        width: fit-content;
+                        max-width: 100%;
+                    }
+                    .message-icon {
+                        margin-right: 8px;
+                        font-size: 16px;
+                        flex-shrink: 0;
+                    }
+                    .message-text {
+                        flex: 1;
+                    }
+                    .hint-box {
+                        background-color: rgba(255, 235, 59, 0.1);
+                        border-color: rgba(255, 235, 59, 0.3);
+                        color: var(--vscode-editor-foreground);
+                    }
+                    .warning-box {
+                        background-color: rgba(255, 152, 0, 0.1);
+                        border-color: rgba(255, 152, 0, 0.3);
+                        color: var(--vscode-editorWarning-foreground, var(--vscode-editor-foreground));
+                    }
+                    .info-box {
+                        background-color: rgba(33, 150, 243, 0.1);
+                        border-color: rgba(33, 150, 243, 0.3);
+                        color: var(--vscode-editorInfo-foreground, var(--vscode-editor-foreground));
+                    }
                 </style>
             </head>
             <body>
@@ -515,6 +564,31 @@ export class MDCLPreviewPanel {
         const executedClass = isExecuted ? ' executed' : '';
 
         return `<code>${this.escapeHtml(unescapedCommand)}</code> <button class="${buttonClass}${executedClass}" data-command='${JSON.stringify(cmdObj).replace(/'/g, '&#39;')}' data-command-id="${commandId}">${buttonText}</button>`;
+    }
+
+    private createMessageBox(message: string, type: 'hint' | 'warning' | 'info'): string {
+        let icon = '';
+        let className = 'message-box';
+
+        switch (type) {
+            case 'hint':
+                icon = '💡';
+                className += ' hint-box';
+                break;
+            case 'warning':
+                icon = '⚠️';
+                className += ' warning-box';
+                break;
+            case 'info':
+                icon = 'ℹ️';
+                className += ' info-box';
+                break;
+        }
+
+        return `<div class="${className}">
+            <span class="message-icon">${icon}</span>
+            <span class="message-text">${this.escapeHtml(message)}</span>
+        </div>`;
     }
 
     private escapeHtml(text: string): string {
