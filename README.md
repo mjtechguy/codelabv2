@@ -1,8 +1,8 @@
 # CodeLab VS Code Extension
 
-<div style="text-align: center;">
-  <img src="icons/codelab-icon.png" alt="Centered image">
-</div>
+<p align="center">
+  <img width="300" height="300" src="icons/codelab-icon.png" alt="CodeLab Logo">
+</p>
 
 CodeLab is a Visual Studio Code extension that transforms markdown files (`.mdcl`) into interactive command execution environments. Perfect for creating executable documentation, tutorials, training materials, and technical runbooks with live command execution capabilities.
 
