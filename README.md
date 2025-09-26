@@ -6,6 +6,13 @@
 
 CodeLab is a Visual Studio Code extension that transforms markdown files (`.mdcl`) into interactive command execution environments. Perfect for creating executable documentation, tutorials, training materials, and technical runbooks with live command execution capabilities.
 
+## Works With
+
+- Visual Studio Code 1.85.0 or higher
+- [Cursor](https://cursor.so)
+- [Windsurf](https://windsurf.dev)
+- [Code Server](https://github.com/coder/code-server) - must enable `Insecure origins treated as secure` setting in browser for the address if you are using HTTPS
+
 ## Features
 
 ### Interactive Markdown Commands
