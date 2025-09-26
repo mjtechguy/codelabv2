@@ -1,0 +1,175 @@
+{
+  "name": "codelabv2",
+  "displayName": "CodeLabV2",
+  "description": "Interactive markdown with executable commands for VS Code",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "publisher": "mjtechguy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mjtechguy/codelabv2"
+  },
+  "license": "MIT",
+  "icon": "icons/codelab-icon.png",
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:mdcl",
+    "onCommand:mdcl.openPreview",
+    "onFileSystem:mdcl"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "mdcl",
+        "aliases": [
+          "MDCL",
+          "Markdown CodeLab"
+        ],
+        "extensions": [
+          ".mdcl"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/mdcl-icon.svg",
+          "dark": "./icons/mdcl-icon.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mdcl",
+        "scopeName": "text.mdcl",
+        "path": "./syntaxes/mdcl.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.markdown": "markdown"
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "mdcl.openPreview",
+        "title": "Open MDCL Preview",
+        "icon": "$(open-preview)",
+        "category": "MDCL"
+      },
+      {
+        "command": "mdcl.openAsPreview",
+        "title": "Open as Preview",
+        "category": "MDCL"
+      },
+      {
+        "command": "mdcl.executeCommand",
+        "title": "Execute MDCL Command"
+      },
+      {
+        "command": "mdcl.copyCommand",
+        "title": "Copy to Clipboard"
+      },
+      {
+        "command": "mdcl.openFile",
+        "title": "Open File"
+      },
+      {
+        "command": "mdcl.refreshCodeLens",
+        "title": "Refresh Code Lenses",
+        "category": "MDCL"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "when": "resourceExtname == .mdcl",
+          "command": "mdcl.openPreview",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "when": "resourceExtname == .mdcl",
+          "command": "mdcl.openPreview",
+          "group": "navigation"
+        },
+        {
+          "when": "resourceExtname == .mdcl",
+          "command": "mdcl.openAsPreview",
+          "group": "1_preview@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "mdcl.openPreview",
+          "when": "resourceExtname == .mdcl"
+        },
+        {
+          "command": "mdcl.openAsPreview",
+          "when": "resourceExtname == .mdcl"
+        },
+        {
+          "command": "mdcl.executeCommand",
+          "when": "false"
+        },
+        {
+          "command": "mdcl.copyCommand",
+          "when": "false"
+        },
+        {
+          "command": "mdcl.openFile",
+          "when": "false"
+        },
+        {
+          "command": "mdcl.refreshCodeLens",
+          "when": "resourceExtname == .mdcl"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MDCL",
+      "properties": {
+        "mdcl.openRelative": {
+          "type": "string",
+          "enum": [
+            "File",
+            "Workspace"
+          ],
+          "default": "File",
+          "description": "Open files relative to current file or workspace"
+        },
+        "mdcl.enableCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable CodeLens for MDCL commands"
+        },
+        "mdcl.interruptDelay": {
+          "type": "number",
+          "default": 200,
+          "description": "Delay in milliseconds between interrupt and command execution"
+        },
+        "mdcl.autoOpenPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open preview panel when opening MDCL files"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.x",
+    "@types/vscode": "^1.74.0",
+    "@vscode/vsce": "^3.6.2",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "marked": "^9.1.0"
+  }
+}

@@ -1,0 +1,39 @@
+# Test CodeLab Extension
+
+## Test Commands
+
+Echo test:
+`echo "Hello from CodeLab!"` {{ execute }}
+
+
+Multiline test:
+```
+`echo "Hello from CodeLab!"` {{ execute }}
+`echo "This is a multiline test."` {{ execute }}
+`echo "Goodbye!"` {{ execute }}
+```
+
+<br/>
+
+block test:
+
+```{{ execute }}
+echo "Hello from CodeLab!"
+echo "This is a multiline test."
+echo "Goodbye!"
+```
+
+List files:
+`ls -la` {{ execute }}
+
+Copy this text:
+`This text will be copied to clipboard` {{ copy }}
+
+Open the README:
+`./README.md` {{ open }}
+
+Run in second terminal:
+`echo "Terminal 2"` {{ execute 't2' }}
+
+Interrupt and run:
+`echo "New command after interrupt"` {{ execute interrupt }}

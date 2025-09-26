@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "MDCL",
+  "patterns": [
+    {
+      "include": "#mdcl-command"
+    },
+    {
+      "include": "text.html.markdown"
+    }
+  ],
+  "repository": {
+    "mdcl-command": {
+      "patterns": [
+        {
+          "name": "meta.mdcl.command",
+          "match": "(`[^`]+`)\\s*(\\{\\{\\s*(execute|copy|open)(\\s+'[^']+')?(\\s+interrupt)?\\s*\\}\\})",
+          "captures": {
+            "1": {
+              "name": "markup.inline.raw.string.markdown"
+            },
+            "2": {
+              "name": "keyword.control.mdcl"
+            },
+            "3": {
+              "name": "entity.name.function.mdcl"
+            },
+            "4": {
+              "name": "string.quoted.single.mdcl"
+            },
+            "5": {
+              "name": "keyword.other.mdcl"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "scopeName": "text.mdcl"
+}
