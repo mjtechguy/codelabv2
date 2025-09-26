@@ -1,10 +1,14 @@
 # CodeLab VS Code Extension
 
+<div style="text-align: center;">
+  <img src="icons/codelab-icon.png" alt="Centered image">
+</div>
+
 CodeLab is a Visual Studio Code extension that transforms markdown files (`.mdcl`) into interactive command execution environments. Perfect for creating executable documentation, tutorials, training materials, and technical runbooks with live command execution capabilities.
 
 ## Features
 
-### 🎯 Interactive Markdown Commands
+### Interactive Markdown Commands
 CodeLab extends standard markdown with special command tags that become executable:
 
 - **Execute in Terminal**: Run commands in VS Code's integrated terminal with visual feedback
@@ -14,21 +18,48 @@ CodeLab extends standard markdown with special command tags that become executab
 - **Block Execution**: Run multiple commands with a single button
 - **Execution Tracking**: Visual indicators (green checkmark) for executed commands
 
-### 📝 Command Syntax
+### Command Syntax
+
+See the `example.mdcl` file for a full demonstration. Below are usage examples:
 
 #### Individual Commands
+
 Embed executable commands in markdown using backticks and action tags:
 
-```markdown
+- Wrapping single commands:
+
+```
 `echo "Hello World"` {{ execute }}
+```
+
+- Executing a command in the main CodeLab terminal:
+```
 `npm install` {{ execute }}
+```
+
+- Executing in a named terminal (e.g., 't2' 't3', etc.):
+```
+`npm test` {{ execute 't2' }}
+```
+
+- Opening files in VSCode editor relative to the current file or workspace:
+```
 `./src/main.ts` {{ open }}
+```
+
+- Copying code snippets to clipboard:
+```
 `const data = []` {{ copy }}
-`npm test` {{ execute 't2' }}  # Execute in terminal named 't2'
+```
+
+- Interrupting current command before executing a new one:
+```
 `npm start` {{ execute interrupt }}  # Interrupt current process first
 ```
 
+
 #### Multi-line Commands in Code Blocks
+
 Create code blocks with multiple executable commands, each with its own button:
 
 ````markdown
@@ -40,17 +71,16 @@ Create code blocks with multiple executable commands, each with its own button:
 ````
 
 #### Block Execution (Run All)
+
 Execute multiple commands with a single "Run All" button:
 
-````markdown
 ```{{ execute }}
 echo "Command 1"
 echo "Command 2"
 echo "Command 3"
 ```
-````
 
-### 👁️ Live Preview Panel
+### Live Preview Panel
 - Automatically opens when viewing `.mdcl` files
 - Side-by-side view with the source markdown
 - Interactive command buttons with hover effects
@@ -59,7 +89,7 @@ echo "Command 3"
 - Visual execution tracking with green checkmarks
 - Styled code blocks with syntax highlighting
 
-### 🔍 CodeLens Integration
+### CodeLens Integration
 - Inline executable commands appear as CodeLens hints above the code
 - Click to run, copy, or open files directly from the editor
 - Support for terminal targeting and interrupt commands
@@ -73,19 +103,19 @@ echo "Command 3"
 ## Installation
 
 ### From VSIX Package
-1. Download or build the `codelab-0.0.1.vsix` file
+1. Download or build the `codelabv2-1.0.0.vsix` file
 2. Install using one of these methods:
-   - **Command line**: `code --install-extension codelab-0.0.1.vsix`
+   - **Command line**: `code --install-extension codelabv2-1.0.0.vsix`
    - **VS Code GUI**:
      1. Open Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`)
      2. Click `...` menu → `Install from VSIX...`
-     3. Select the `codelab-0.0.1.vsix` file
+     3. Select the `codelabv2-1.0.0.vsix` file
 
 ### Building from Source
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/codelab-v2.git
-cd codelab-v2
+git clone https://github.com/mjtechguy/codelabv2.git
+cd codelabv2
 
 # Install dependencies
 npm install
@@ -94,7 +124,7 @@ npm install
 ./build.sh
 
 # Install the generated VSIX
-code --install-extension codelab-0.0.1.vsix
+code --install-extension codelabv2-1.0.0.vsix
 ```
 
 ## Extension Settings
@@ -109,70 +139,6 @@ Configure CodeLab through VS Code settings:
 | | • `"File"`: Relative to the current markdown file | |
 | | • `"Workspace"`: Relative to the workspace folder | |
 | `mdcl.interruptDelay` | Delay (ms) between interrupt signal and new command | `200` |
-
-## Usage
-
-### Creating Interactive Documentation
-
-1. **Create a `.mdcl` file** (CodeLab markdown)
-2. **Add command tags** using the syntax: `` `command` {{ action }} ``
-3. **Preview automatically opens** (or use `Cmd+Shift+V` / `Ctrl+Shift+V`)
-4. **Click buttons** in the preview or CodeLens to execute commands
-5. **Track execution** with green checkmarks on executed commands
-
-### Complete Example
-
-Create a file named `tutorial.mdcl`:
-
-```markdown
-# My Project Setup
-
-## Install Dependencies
-
-First, let's install our project dependencies:
-`npm install` {{ execute }}
-
-## Run Tests
-
-Run the test suite in a separate terminal:
-`npm test` {{ execute 't2' }}
-
-## Start Development Server
-
-```{{ execute }}
-echo "Starting development environment..."
-npm run dev
-```
-
-## Multiple Commands Example
-
-Run these commands individually:
-```
-`git status` {{ execute }}
-`git branch` {{ execute }}
-`git log --oneline -5` {{ execute }}
-```
-
-## Configuration
-
-Copy this configuration to your clipboard:
-`{ "port": 3000, "debug": true }` {{ copy }}
-
-## Open Files
-
-Open the main application file:
-`src/index.ts` {{ open }}
-```
-
-## Commands
-
-The extension provides the following commands:
-
-- **MDCL: Open Preview** (`mdcl.openPreview`) - Opens the interactive preview panel
-- **MDCL: Execute Command** (`mdcl.executeCommand`) - Executes a command in terminal
-- **MDCL: Copy Command** (`mdcl.copyCommand`) - Copies command to clipboard
-- **MDCL: Open File** (`mdcl.openFile`) - Opens a file in the editor
-- **MDCL: Refresh CodeLens** (`mdcl.refreshCodeLens`) - Manually refresh code lenses
 
 ## Architecture
 
@@ -212,7 +178,7 @@ CodeLab uses `.mdcl` files (Markdown CodeLab) which are standard markdown files 
 
 ## Release Notes
 
-### 0.0.1
+### 1.0.0
 
 Latest features:
 - Interactive markdown command execution with `.mdcl` files
