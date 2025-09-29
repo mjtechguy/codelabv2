@@ -15,6 +15,9 @@ export function activate(context: vscode.ExtensionContext) {
     });
     console.log('VS Code version:', vscode.version);
 
+    // Show activation message
+    vscode.window.showInformationMessage('CodeLab Extension Activated!');
+
     // Log all currently open documents
     vscode.workspace.textDocuments.forEach(doc => {
         console.log('📄 Open document:', doc.uri.toString(), 'Language:', doc.languageId);

@@ -4,7 +4,7 @@
   <img width="300" height="300" src="icons/codelab-icon.png" alt="CodeLab Logo">
 </p>
 
-CodeLab is a Visual Studio Code extension that transforms markdown files (`.mdcl`) into interactive command execution environments. Perfect for creating executable documentation, tutorials, training materials, and technical runbooks with live command execution capabilities.
+CodeLab is a Visual Studio Code extension that transforms markdown files (`.mdcl`) into interactive command execution environments. Perfect for creating executable documentation, tutorials, training materials, technical runbooks, and interactive quizzes with live command execution capabilities.
 
 ## Works With
 
@@ -24,10 +24,12 @@ CodeLab extends standard markdown with special command tags that become executab
 - **Terminal Targeting**: Execute commands in specific named terminal instances
 - **Block Execution**: Run multiple commands with a single button
 - **Execution Tracking**: Visual indicators (green checkmark) for executed commands
+- **Admonitions**: Styled callout boxes for notes, tips, warnings, and danger alerts
+- **Interactive Quizzes**: Create multiple-choice quizzes with answer key validation
 
 ### Command Syntax
 
-See the `example.mdcl` file for a full demonstration. Below are usage examples:
+See the `command-examples.mdcl` file for a comprehensive demonstration of all features. Below are quick reference examples:
 
 #### Individual Commands
 
@@ -87,18 +89,46 @@ echo "Command 2"
 echo "Command 3"
 ```
 
-#### Show Hints, Info, and Warnings
+#### Admonitions
 
-Add contextual tags to provide additional information:
+Add styled callout boxes for different types of contextual information:
 
 ```
-`This is a hint message` {{ hint }}
+`General information` {{ note }}
+`Technical details` {{ info }}
+`Helpful tip` {{ tip }}
+`Important caution` {{ warning }}
+`Critical alert` {{ danger }}
 ```
+
+Each admonition type has distinct colors, icons, and styling to draw attention appropriately.
+
+#### Interactive Quizzes
+
+Create multiple-choice quizzes with answer validation:
+
+**Block format:**
+````
+```quiz id="unique-id"
+Q: What is the question?
+A) Option A
+B) Option B
+C) Option C
+D) Option D
 ```
-`This is an info message` {{ info }}
+````
+
+**Inline format:**
 ```
+`What is your question?` {{ quiz id="unique-id" }}
 ```
-`This is a warning message` {{ warning }}
+
+**Answer Key File** (`.mdclanswer.yaml`):
+```yaml
+quizzes:
+  unique-id:
+    answer: "B"
+    explanation: "Optional explanation text"
 ```
 
 
@@ -110,6 +140,8 @@ Add contextual tags to provide additional information:
 - Maintains scroll position when switching tabs
 - Visual execution tracking with green checkmarks
 - Styled code blocks with syntax highlighting
+- Hugo LoveIt theme-inspired admonition styling
+- Real-time quiz validation and feedback
 
 ### CodeLens Integration
 - Inline executable commands appear as CodeLens hints above the code
@@ -125,13 +157,13 @@ Add contextual tags to provide additional information:
 ## Installation
 
 ### From VSIX Package
-1. Download or build the `codelabv2-1.0.0.vsix` file
+1. Download or build the `codelabv2-1.1.0.vsix` file
 2. Install using one of these methods:
-   - **Command line**: `code --install-extension codelabv2-1.0.0.vsix`
+   - **Command line**: `code --install-extension codelabv2-1.1.0.vsix`
    - **VS Code GUI**:
      1. Open Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`)
      2. Click `...` menu → `Install from VSIX...`
-     3. Select the `codelabv2-1.0.0.vsix` file
+     3. Select the `codelabv2-1.1.0.vsix` file
 
 ### Building from Source
 ```bash
@@ -142,11 +174,12 @@ cd codelabv2
 # Install dependencies
 npm install
 
-# Build the extension
-./build.sh
+# Build the extension (bundles all dependencies)
+npm run package
+npx @vscode/vsce package
 
 # Install the generated VSIX
-code --install-extension codelabv2-1.0.0.vsix
+code --install-extension codelabv2-1.1.0.vsix
 ```
 
 ## Extension Settings
@@ -170,6 +203,8 @@ CodeLab is built with:
 - **Marked.js** for markdown parsing and rendering
 - **WebView API** for the interactive preview panel
 - **CodeLens Provider** for inline command execution
+- **YAML** for quiz answer key parsing
+- **esbuild** for bundling dependencies into a single output file
 
 ## File Format
 
@@ -202,12 +237,20 @@ CodeLab uses `.mdcl` files (Markdown CodeLab) which are standard markdown files 
 
 ### 1.1.0
 
-Latest features:
-- Add Hint, Info and Warning tags for additional context in MDCL file previews
+**New Features:**
+- **Admonitions**: Five types of styled callout boxes (note, info, tip, warning, danger) with Hugo LoveIt theme-inspired styling
+- **Interactive Quizzes**: Create multiple-choice quizzes with answer key validation using `.mdclanswer.yaml` files
+- **Answer Key Loader**: Secure YAML-based answer key system for quiz validation
+- **esbuild Integration**: Extension now properly bundles all dependencies for reliable installation
+
+**Improvements:**
+- Enhanced preview panel with quiz feedback UI
+- Better error handling for missing answer keys
+- Improved documentation with comprehensive `command-examples.mdcl`
 
 ### 1.0.0
 
-Latest features:
+**Initial Release:**
 - Interactive markdown command execution with `.mdcl` files
 - Live preview panel with auto-open support
 - CodeLens integration for inline execution
@@ -216,6 +259,7 @@ Latest features:
 - Scroll position persistence
 - Block command execution
 - File opening with configurable paths
+- Copy to clipboard functionality
 
 ## Development
 
@@ -224,15 +268,20 @@ Latest features:
 codelab-v2/
 ├── src/
 │   ├── extension.ts          # Extension entry point
-│   ├── previewPanel.ts       # Preview panel implementation
+│   ├── previewPanel.ts       # Preview panel with webview
 │   ├── commandExecutor.ts    # Command execution logic
 │   ├── commandParser.ts      # Command parsing from markdown
-│   └── codeLensProvider.ts   # CodeLens provider
+│   ├── codeLensProvider.ts   # CodeLens provider
+│   ├── quizProcessor.ts      # Quiz parsing and rendering
+│   ├── answerKeyLoader.ts    # Answer key YAML loader
+│   └── types/                # TypeScript type definitions
 ├── syntaxes/
 │   └── mdcl.tmLanguage.json  # Syntax highlighting for .mdcl
+├── icons/                     # Extension and file icons
 ├── package.json               # Extension manifest
 ├── tsconfig.json              # TypeScript configuration
-└── build.sh                   # Build script
+├── esbuild.js                 # Build bundler configuration
+└── command-examples.mdcl      # Comprehensive feature documentation
 ```
 
 ### Building the Extension
@@ -241,14 +290,17 @@ codelab-v2/
 # Install dependencies
 npm install
 
-# Compile TypeScript
-npm run compile
+# Bundle extension with esbuild (production)
+npm run package
 
 # Build VSIX package
-./build.sh
+npx @vscode/vsce package
 
 # Watch for changes during development
-npm run watch
+npm run compile:watch
+
+# Compile TypeScript (without bundling)
+npm run compile
 ```
 
 ### Testing

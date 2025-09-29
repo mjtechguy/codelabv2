@@ -3,6 +3,9 @@ import * as path from 'path';
 import { marked } from 'marked';
 import { CommandParser, MDCLCommand } from './commandParser';
 import { CommandExecutor } from './commandExecutor';
+import { QuizProcessor } from './quizProcessor';
+import { AnswerKeyLoader } from './answerKeyLoader';
+import { AnswerKey } from './types/quiz';
 
 export class MDCLPreviewPanel {
     public static currentPanel: MDCLPreviewPanel | undefined;
@@ -15,6 +18,9 @@ export class MDCLPreviewPanel {
     private scrollPosition: number = 0;
     private executedCommands: Set<string> = new Set();
     private commandCounter: number = 0;
+    private quizProcessor: QuizProcessor;
+    private answerKeyLoader: AnswerKeyLoader;
+    private currentAnswerKey: AnswerKey | null = null;
 
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -54,7 +60,10 @@ export class MDCLPreviewPanel {
         this._document = document;
         this.parser = new CommandParser();
         this.executor = executor;
+        this.quizProcessor = new QuizProcessor();
+        this.answerKeyLoader = new AnswerKeyLoader();
 
+        // Initial update
         this.update();
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
@@ -73,6 +82,18 @@ export class MDCLPreviewPanel {
                         break;
                     case 'saveScrollPosition':
                         this.scrollPosition = message.scrollPosition;
+                        break;
+                    case 'checkQuizAnswer':
+                        const result = this.answerKeyLoader.validateAnswer(
+                            message.quizId,
+                            message.answer,
+                            this.currentAnswerKey
+                        );
+                        this._panel.webview.postMessage({
+                            type: 'quizResult',
+                            quizId: message.quizId,
+                            ...result
+                        });
                         break;
                 }
             },
@@ -93,6 +114,17 @@ export class MDCLPreviewPanel {
 
     private update() {
         this.commandCounter = 0; // Reset counter for each update
+        this.quizProcessor.resetCounter(); // Reset quiz counter
+
+        // Load answer key asynchronously without blocking
+        this.answerKeyLoader.loadAnswerKey(this._document.uri)
+            .then(key => {
+                this.currentAnswerKey = key;
+            })
+            .catch(err => {
+                console.log('Failed to load answer key:', err);
+            });
+
         this._panel.webview.html = this.getHtmlContent(this._panel.webview);
     }
 
@@ -137,8 +169,29 @@ export class MDCLPreviewPanel {
             return `\`\`\`\n${blockId}\n\`\`\``;
         });
 
+        // Process quiz blocks BEFORE markdown parsing
+        const quizBlockRegex = /```quiz(?:\s+id=["']([^"']+)["'])?\s*\n([^`]*)```/g;
+        const quizBlocks = new Map<string, string>();
+
+        processedContent = processedContent.replace(quizBlockRegex, (match, quizId, quizContent) => {
+            const quiz = this.quizProcessor.parseQuizBlock(quizContent, quizId);
+            if (quiz) {
+                const quizHtml = this.quizProcessor.generateQuizHTML(quiz);
+                const quizMarkerId = `QUIZ_BLOCK_${Math.random().toString(36).substr(2, 9)}`;
+                quizBlocks.set(quizMarkerId, quizHtml);
+                return `\`\`\`\n${quizMarkerId}\n\`\`\``;
+            }
+            return match;
+        });
+
         // Parse the markdown to HTML
         let htmlContent = marked.parse(processedContent) as string;
+
+        // Replace quiz block placeholders with actual quiz HTML
+        quizBlocks.forEach((quizHtml, quizMarkerId) => {
+            const blockRegex = new RegExp(`<pre><code[^>]*>${quizMarkerId}\\s*</code></pre>`, 'g');
+            htmlContent = htmlContent.replace(blockRegex, quizHtml);
+        });
 
         // Process the block command placeholders
         if (this.blockCommands) {
@@ -199,8 +252,8 @@ export class MDCLPreviewPanel {
             return this.createCommandButton(command, action, quotedTerminal, unquotedTerminal, interrupt);
         });
 
-        // Process hints, warnings, and info messages
-        const messageRegex = /<code>([^<]+)<\/code>\s*\{\{\s*(hint|warning|info)\s*\}\}/g;
+        // Process note, info, tip, warning, and danger messages
+        const messageRegex = /<code>([^<]+)<\/code>\s*\{\{\s*(note|info|tip|warning|danger|hint)\s*\}\}/g;
 
         htmlContent = htmlContent.replace(messageRegex, (match, message, type) => {
             const unescapedMessage = message
@@ -211,6 +264,21 @@ export class MDCLPreviewPanel {
                 .replace(/&amp;/g, '&');
 
             return this.createMessageBox(unescapedMessage, type);
+        });
+
+        // Process inline quiz questions
+        const inlineQuizRegex = /<code>([^<]+)<\/code>\s*\{\{\s*quiz(?:\s+id=(?:&#39;|&quot;)([^&]+)(?:&#39;|&quot;))?\s*\}\}/g;
+
+        htmlContent = htmlContent.replace(inlineQuizRegex, (match, question, quizId) => {
+            const unescapedQuestion = question
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&amp;/g, '&');
+
+            const quiz = this.quizProcessor.parseInlineQuiz(unescapedQuestion, quizId);
+            return this.quizProcessor.generateQuizHTML(quiz);
         });
 
         // Process commands inside regular code blocks (for individual command buttons)
@@ -430,40 +498,265 @@ export class MDCLPreviewPanel {
                         font-size: 10px;
                         font-weight: bold;
                     }
-                    .message-box {
-                        display: inline-flex;
-                        align-items: center;
-                        padding: 8px 12px;
-                        border-radius: 6px;
-                        margin: 4px 0;
-                        font-size: 14px;
-                        line-height: 1.5;
-                        border: 1px solid;
-                        width: fit-content;
-                        max-width: 100%;
+                    /* Admonition Styles - Hugo LoveIt Theme */
+                    .admonition {
+                        border-radius: 4px;
+                        padding: 16px;
+                        margin: 16px 0;
+                        border-left: 4px solid;
+                        position: relative;
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
                     }
-                    .message-icon {
-                        margin-right: 8px;
-                        font-size: 16px;
+                    .admonition::before {
+                        position: absolute;
+                        top: -12px;
+                        left: 16px;
+                        padding: 2px 8px;
+                        border-radius: 3px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: white;
+                        letter-spacing: 0.5px;
+                    }
+                    .admonition-content {
+                        display: flex;
+                        align-items: flex-start;
+                        gap: 12px;
+                        margin-top: 4px;
+                    }
+                    .admonition-icon {
+                        font-size: 20px;
                         flex-shrink: 0;
                     }
-                    .message-text {
+                    .admonition-text {
                         flex: 1;
-                    }
-                    .hint-box {
-                        background-color: rgba(255, 235, 59, 0.1);
-                        border-color: rgba(255, 235, 59, 0.3);
+                        line-height: 1.6;
+                        font-size: 14px;
                         color: var(--vscode-editor-foreground);
                     }
-                    .warning-box {
-                        background-color: rgba(255, 152, 0, 0.1);
-                        border-color: rgba(255, 152, 0, 0.3);
-                        color: var(--vscode-editorWarning-foreground, var(--vscode-editor-foreground));
+                    /* Note - Blue */
+                    .admonition-note {
+                        background-color: rgba(33, 150, 243, 0.05);
+                        border-left-color: #2196f3;
                     }
-                    .info-box {
-                        background-color: rgba(33, 150, 243, 0.1);
-                        border-color: rgba(33, 150, 243, 0.3);
-                        color: var(--vscode-editorInfo-foreground, var(--vscode-editor-foreground));
+                    .admonition-note::before {
+                        content: 'NOTE';
+                        background: #2196f3;
+                    }
+                    .admonition-note .admonition-icon {
+                        color: #2196f3;
+                    }
+                    /* Info - Light Blue */
+                    .admonition-info {
+                        background-color: rgba(0, 188, 212, 0.05);
+                        border-left-color: #00bcd4;
+                    }
+                    .admonition-info::before {
+                        content: 'INFO';
+                        background: #00bcd4;
+                    }
+                    .admonition-info .admonition-icon {
+                        color: #00bcd4;
+                    }
+                    /* Tip - Green */
+                    .admonition-tip {
+                        background-color: rgba(76, 175, 80, 0.05);
+                        border-left-color: #4caf50;
+                    }
+                    .admonition-tip::before {
+                        content: 'TIP';
+                        background: #4caf50;
+                    }
+                    .admonition-tip .admonition-icon {
+                        color: #4caf50;
+                    }
+                    /* Warning - Orange */
+                    .admonition-warning {
+                        background-color: rgba(255, 152, 0, 0.05);
+                        border-left-color: #ff9800;
+                    }
+                    .admonition-warning::before {
+                        content: 'WARNING';
+                        background: #ff9800;
+                    }
+                    .admonition-warning .admonition-icon {
+                        color: #ff9800;
+                    }
+                    /* Danger - Red */
+                    .admonition-danger {
+                        background-color: rgba(244, 67, 54, 0.05);
+                        border-left-color: #f44336;
+                    }
+                    .admonition-danger::before {
+                        content: 'DANGER';
+                        background: #f44336;
+                    }
+                    .admonition-danger .admonition-icon {
+                        color: #f44336;
+                    }
+                    /* Quiz Styles - Green Question Theme */
+                    .quiz-container {
+                        background-color: rgba(100, 221, 23, 0.05);
+                        border-left: 4px solid #64dd17;
+                        border-radius: 4px;
+                        padding: 20px;
+                        margin: 16px 0;
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+                        position: relative;
+                    }
+                    .quiz-container::before {
+                        content: "QUESTION";
+                        position: absolute;
+                        top: -12px;
+                        left: 16px;
+                        background: #64dd17;
+                        color: white;
+                        padding: 2px 8px;
+                        border-radius: 3px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                    }
+                    .quiz-container.quiz-inline {
+                        background-color: rgba(100, 221, 23, 0.05);
+                        border-left: 3px solid #64dd17;
+                        padding: 12px 16px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                    }
+                    .quiz-container.quiz-inline::before {
+                        display: none;
+                    }
+                    .quiz-icon {
+                        font-size: 20px;
+                        margin-right: 8px;
+                        color: #64dd17;
+                    }
+                    .quiz-question {
+                        font-size: 16px;
+                        font-weight: 500;
+                        margin-bottom: 16px;
+                        margin-top: 8px;
+                        color: var(--vscode-editor-foreground);
+                    }
+                    .quiz-question-inline {
+                        display: flex;
+                        align-items: center;
+                        font-size: 15px;
+                        font-weight: 500;
+                    }
+                    .quiz-options {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 10px;
+                    }
+                    .quiz-option {
+                        display: flex;
+                        align-items: center;
+                        padding: 10px 14px;
+                        background-color: var(--vscode-editor-background);
+                        border: 1px solid var(--vscode-editorWidget-border);
+                        border-radius: 4px;
+                        cursor: pointer;
+                        transition: all 0.2s;
+                    }
+                    .quiz-option:hover {
+                        background-color: rgba(100, 221, 23, 0.08);
+                        border-color: #64dd17;
+                    }
+                    .quiz-option input[type="radio"] {
+                        margin-right: 10px;
+                    }
+                    .option-label {
+                        font-weight: 600;
+                        margin-right: 8px;
+                    }
+                    .quiz-input-group {
+                        display: flex;
+                        gap: 8px;
+                        align-items: center;
+                    }
+                    .quiz-text-input {
+                        flex: 1;
+                        padding: 6px 10px;
+                        background-color: var(--vscode-input-background);
+                        color: var(--vscode-input-foreground);
+                        border: 1px solid var(--vscode-input-border);
+                        border-radius: 4px;
+                        font-size: 14px;
+                    }
+                    .quiz-text-input:focus {
+                        outline: 1px solid var(--vscode-focusBorder);
+                    }
+                    .quiz-actions {
+                        margin-top: 16px;
+                        display: flex;
+                        gap: 10px;
+                    }
+                    .quiz-check-btn, .quiz-show-btn, .quiz-reset-btn {
+                        padding: 6px 16px;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 13px;
+                        font-weight: 500;
+                        transition: all 0.2s;
+                    }
+                    .quiz-check-btn {
+                        background-color: #64dd17;
+                        color: white;
+                        font-weight: 600;
+                    }
+                    .quiz-check-btn:hover {
+                        background-color: #76ff03;
+                        box-shadow: 0 2px 4px rgba(100, 221, 23, 0.3);
+                    }
+                    .quiz-check-inline {
+                        padding: 6px 12px;
+                    }
+                    .quiz-show-btn {
+                        background-color: var(--vscode-editorWidget-background);
+                        color: var(--vscode-editorWidget-foreground);
+                        border: 1px solid var(--vscode-editorWidget-border);
+                    }
+                    .quiz-reset-btn {
+                        background-color: var(--vscode-textLink-foreground);
+                        color: var(--vscode-editor-background);
+                    }
+                    .quiz-feedback {
+                        margin-top: 12px;
+                        padding: 10px;
+                        border-radius: 4px;
+                        font-size: 14px;
+                        display: none;
+                    }
+                    .quiz-feedback-inline {
+                        margin: 0;
+                        padding: 8px;
+                    }
+                    .quiz-feedback.correct {
+                        display: block;
+                        background-color: rgba(76, 175, 80, 0.1);
+                        border: 1px solid rgba(76, 175, 80, 0.3);
+                        color: var(--vscode-testing-iconPassed, #4CAF50);
+                    }
+                    .quiz-feedback.incorrect {
+                        display: block;
+                        background-color: rgba(244, 67, 54, 0.1);
+                        border: 1px solid rgba(244, 67, 54, 0.3);
+                        color: var(--vscode-testing-iconFailed, #f44336);
+                    }
+                    .quiz-option.selected {
+                        background-color: var(--vscode-list-activeSelectionBackground);
+                    }
+                    .quiz-option.correct-answer {
+                        border: 2px solid #4CAF50;
+                        background-color: rgba(76, 175, 80, 0.1);
+                    }
+                    .quiz-option.wrong-answer {
+                        border: 2px solid #f44336;
+                        background-color: rgba(244, 67, 54, 0.1);
                     }
                 </style>
             </head>
@@ -504,6 +797,8 @@ export class MDCLPreviewPanel {
                         if (e.target.tagName === 'BUTTON') {
                             const commandData = e.target.getAttribute('data-command');
                             const commandId = e.target.getAttribute('data-command-id');
+                            const quizId = e.target.getAttribute('data-quiz-id');
+
                             if (commandData) {
                                 const command = JSON.parse(commandData);
                                 vscode.postMessage({
@@ -511,7 +806,112 @@ export class MDCLPreviewPanel {
                                     command: command,
                                     commandId: commandId
                                 });
+                            } else if (quizId) {
+                                // Handle quiz button clicks
+                                if (e.target.classList.contains('quiz-check-btn')) {
+                                    handleQuizCheck(quizId);
+                                } else if (e.target.classList.contains('quiz-show-btn')) {
+                                    handleQuizShow(quizId);
+                                } else if (e.target.classList.contains('quiz-reset-btn')) {
+                                    handleQuizReset(quizId);
+                                }
                             }
+                        }
+                    });
+
+                    // Quiz helper functions
+                    function handleQuizCheck(quizId) {
+                        const container = document.querySelector(\`[data-quiz-id="\${quizId}"]\`);
+                        if (!container) return;
+
+                        let answer;
+                        if (container.classList.contains('quiz-inline')) {
+                            // Text input quiz
+                            const input = container.querySelector('.quiz-text-input');
+                            answer = input ? input.value.trim() : '';
+                        } else {
+                            // Multiple choice quiz
+                            const checked = container.querySelector('input[type="radio"]:checked');
+                            answer = checked ? checked.value : '';
+                        }
+
+                        if (!answer) {
+                            showFeedback(quizId, false, 'Please select or enter an answer');
+                            return;
+                        }
+
+                        // Send to extension for validation
+                        vscode.postMessage({
+                            type: 'checkQuizAnswer',
+                            quizId: quizId,
+                            answer: answer
+                        });
+                    }
+
+                    function handleQuizShow(quizId) {
+                        // This will be implemented if answer key allows showing answers
+                        showFeedback(quizId, false, 'Check your answer first');
+                    }
+
+                    function handleQuizReset(quizId) {
+                        const container = document.querySelector(\`[data-quiz-id="\${quizId}"]\`);
+                        if (!container) return;
+
+                        // Clear selections
+                        const radios = container.querySelectorAll('input[type="radio"]');
+                        radios.forEach(r => r.checked = false);
+
+                        const textInput = container.querySelector('.quiz-text-input');
+                        if (textInput) textInput.value = '';
+
+                        // Clear feedback
+                        const feedback = document.getElementById(\`feedback-\${quizId}\`);
+                        if (feedback) {
+                            feedback.className = 'quiz-feedback';
+                            feedback.innerHTML = '';
+                        }
+
+                        // Reset buttons
+                        const checkBtn = container.querySelector('.quiz-check-btn');
+                        const showBtn = container.querySelector('.quiz-show-btn');
+                        const resetBtn = container.querySelector('.quiz-reset-btn');
+                        if (checkBtn) checkBtn.style.display = 'inline-block';
+                        if (showBtn) showBtn.style.display = 'none';
+                        if (resetBtn) resetBtn.style.display = 'none';
+                    }
+
+                    function showFeedback(quizId, correct, message, correctAnswer) {
+                        const feedback = document.getElementById(\`feedback-\${quizId}\`);
+                        if (!feedback) return;
+
+                        feedback.className = \`quiz-feedback \${correct ? 'correct' : 'incorrect'}\`;
+                        let feedbackHTML = \`\${correct ? '✅' : '❌'} \${message}\`;
+
+                        if (correctAnswer && !correct) {
+                            feedbackHTML += \`<br><strong>Correct answer:</strong> \${correctAnswer}\`;
+                        }
+
+                        feedback.innerHTML = feedbackHTML;
+
+                        // Update buttons
+                        const container = document.querySelector(\`[data-quiz-id="\${quizId}"]\`);
+                        if (container) {
+                            const checkBtn = container.querySelector('.quiz-check-btn');
+                            const resetBtn = container.querySelector('.quiz-reset-btn');
+                            if (checkBtn) checkBtn.style.display = 'none';
+                            if (resetBtn) resetBtn.style.display = 'inline-block';
+                        }
+                    }
+
+                    // Listen for quiz results from extension
+                    window.addEventListener('message', (event) => {
+                        const message = event.data;
+                        if (message.type === 'quizResult') {
+                            const feedbackMessage = message.correct ?
+                                'Correct!' + (message.explanation ? \`: \${message.explanation}\` : '') :
+                                'Incorrect' + (message.explanation ? \`: \${message.explanation}\` : '');
+
+                            showFeedback(message.quizId, message.correct, feedbackMessage, message.correctAnswer);
                         }
                     });
                 </script>
@@ -566,28 +966,45 @@ export class MDCLPreviewPanel {
         return `<code>${this.escapeHtml(unescapedCommand)}</code> <button class="${buttonClass}${executedClass}" data-command='${JSON.stringify(cmdObj).replace(/'/g, '&#39;')}' data-command-id="${commandId}">${buttonText}</button>`;
     }
 
-    private createMessageBox(message: string, type: 'hint' | 'warning' | 'info'): string {
+    private createMessageBox(message: string, type: 'note' | 'info' | 'tip' | 'warning' | 'danger' | 'hint'): string {
         let icon = '';
-        let className = 'message-box';
+        let className = 'admonition';
+        let label = '';
 
         switch (type) {
-            case 'hint':
-                icon = '💡';
-                className += ' hint-box';
-                break;
-            case 'warning':
-                icon = '⚠️';
-                className += ' warning-box';
+            case 'note':
+                icon = '📝';
+                className += ' admonition-note';
+                label = 'NOTE';
                 break;
             case 'info':
                 icon = 'ℹ️';
-                className += ' info-box';
+                className += ' admonition-info';
+                label = 'INFO';
+                break;
+            case 'tip':
+            case 'hint':
+                icon = '💡';
+                className += ' admonition-tip';
+                label = 'TIP';
+                break;
+            case 'warning':
+                icon = '⚠️';
+                className += ' admonition-warning';
+                label = 'WARNING';
+                break;
+            case 'danger':
+                icon = '🔥';
+                className += ' admonition-danger';
+                label = 'DANGER';
                 break;
         }
 
-        return `<div class="${className}">
-            <span class="message-icon">${icon}</span>
-            <span class="message-text">${this.escapeHtml(message)}</span>
+        return `<div class="${className}" data-admonition-type="${type}">
+            <div class="admonition-content">
+                <span class="admonition-icon">${icon}</span>
+                <span class="admonition-text">${this.escapeHtml(message)}</span>
+            </div>
         </div>`;
     }
 

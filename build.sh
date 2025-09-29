@@ -38,10 +38,10 @@ if [ $? -ne 0 ]; then
 fi
 
 echo ""
-echo "🔨 Compiling TypeScript..."
-npm run compile
+echo "🔨 Building and bundling extension..."
+npm run package
 if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ TypeScript compilation failed${NC}"
+    echo -e "${RED}❌ Build failed${NC}"
     exit 1
 fi
 
@@ -49,8 +49,7 @@ echo ""
 echo "📋 Packaging extension..."
 
 # Use npx to run vsce from local node_modules
-# Note: We need to include dependencies (especially 'marked') for the extension to work
-npx vsce package
+npx @vscode/vsce package
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Failed to create VSIX package${NC}"
     exit 1
