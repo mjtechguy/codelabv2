@@ -1,0 +1,219 @@
+# CodeLab Command Examples
+
+This file demonstrates all available commands and features in CodeLab (`.mdcl` files). Use this as a reference guide for creating interactive documentation.
+
+---
+
+## Execute Commands
+
+Execute commands allow users to run shell commands directly from the documentation.
+
+### Single Line Execute
+
+Run a single command:
+
+`echo "Hello from CodeLab!"` {{ execute }}
+
+### Multiple Commands
+
+Execute multiple commands in sequence:
+
+```
+`echo "First command"` {{ execute }}
+`echo "Second command"` {{ execute }}
+`ls -la` {{ execute }}
+```
+
+### Block Execute
+
+Execute multiple lines as a single command block:
+
+```{{ execute }}
+echo "Hello from CodeLab!"
+echo "This is a multiline test."
+echo "Goodbye!"
+```
+
+### Execute in Different Terminals
+
+Target specific terminals by passing a terminal identifier:
+
+`echo "This runs in terminal 2"` {{ execute 't2' }}
+
+`echo "This runs in terminal 3"` {{ execute 't3' }}
+
+### Interrupt and Execute
+
+Interrupt any running command and start a new one:
+
+`echo "This will interrupt any running command"` {{ execute interrupt }}
+
+---
+
+## Copy to Clipboard
+
+Copy text directly to the clipboard:
+
+`This text will be copied to clipboard` {{ copy }}
+
+`export API_KEY=your-api-key-here` {{ copy }}
+
+---
+
+## Open Files
+
+Open files in the VS Code editor:
+
+`./README.md` {{ open }}
+
+`./package.json` {{ open }}
+
+---
+
+## Admonitions
+
+Admonitions provide visual callouts for different types of information.
+
+### Note
+
+General information and documentation notes:
+
+`This is general information about the feature` {{ note }}
+
+### Info
+
+Technical details and specifications:
+
+`The server runs on port 3000 by default` {{ info }}
+
+### Tip / Hint
+
+Helpful suggestions and best practices:
+
+`Use Ctrl+C to stop the development server` {{ tip }}
+
+`You can also use the --watch flag for auto-reload` {{ hint }}
+
+### Warning
+
+Important cautions and considerations:
+
+`This operation will delete all existing data` {{ warning }}
+
+`Always backup your database before running migrations` {{ warning }}
+
+### Danger
+
+Critical alerts and security warnings:
+
+`Never commit API keys to version control` {{ danger }}
+
+`Running this command will permanently delete your database` {{ danger }}
+
+---
+
+## Quiz System
+
+Create interactive quizzes with multiple choice questions.
+
+### Block Quiz Format
+
+```quiz id="js-variables"
+Q: Which keyword creates a block-scoped variable that can be reassigned?
+A) var
+B) let
+C) const
+D) function
+```
+
+### Inline Quiz Format
+
+`What method adds an element to the end of an array?` {{ quiz id="array-push" }}
+
+`What does typeof null return?` {{ quiz id="typeof-null" }}
+
+### Quiz Answer Keys
+
+Quizzes require a separate answer key file with `.mdclanswer.yaml` extension:
+
+```yaml
+quizzes:
+  js-variables:
+    answer: "B"
+    explanation: "let creates block-scoped variables that can be reassigned"
+
+  array-push:
+    answer: "push()"
+    explanation: "The push() method adds elements to the end of an array"
+```
+
+`Create an answer key file matching your .mdcl filename` {{ hint }}
+
+`Never commit answer keys to public repositories` {{ danger }}
+
+---
+
+## Real-World Example
+
+Here's a complete workflow combining multiple command types:
+
+### Project Setup
+
+`Make sure Node.js version 18+ is installed` {{ note }}
+
+`PROJECT_NAME: Choose a unique name for your project` {{ hint }}
+
+`npm init -y` {{ execute }}
+
+### Install Dependencies
+
+`Installing packages may take several minutes` {{ info }}
+
+`npm install express mongoose dotenv` {{ execute }}
+
+### Configuration
+
+`Use strong passwords for production databases` {{ tip }}
+
+`cp .env.example .env` {{ execute }}
+
+`Never expose your .env file publicly` {{ danger }}
+
+`echo ".env" >> .gitignore` {{ execute }}
+
+### Verify Setup
+
+`cat package.json` {{ execute }}
+
+`ls -la` {{ execute }}
+
+---
+
+## Command Summary
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| **Execute** | `command` {{ execute }} | Run shell command |
+| **Execute (terminal)** | `command` {{ execute 't2' }} | Run in specific terminal |
+| **Interrupt** | `command` {{ execute interrupt }} | Interrupt and run command |
+| **Copy** | `text` {{ copy }} | Copy to clipboard |
+| **Open** | `./path/file` {{ open }} | Open file in editor |
+| **Note** | `text` {{ note }} | General information |
+| **Info** | `text` {{ info }} | Technical details |
+| **Tip/Hint** | `text` {{ tip }} / {{ hint }} | Best practices |
+| **Warning** | `text` {{ warning }} | Important cautions |
+| **Danger** | `text` {{ danger }} | Critical alerts |
+| **Quiz (block)** | ```quiz id="x"``` | Multi-line quiz question |
+| **Quiz (inline)** | `question` {{ quiz id="x" }} | Single-line quiz |
+
+---
+
+## Tips for Creating Documentation
+
+`Use admonitions to draw attention to important information` {{ tip }}
+
+`Combine execute commands with warnings for dangerous operations` {{ tip }}
+
+`Keep quiz IDs unique and descriptive` {{ hint }}
+
+`Test all commands before sharing your documentation` {{ info }}

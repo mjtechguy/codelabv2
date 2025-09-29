@@ -19,9 +19,7 @@
   "icon": "icons/codelab-icon.png",
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:mdcl",
-    "onCommand:mdcl.openPreview",
-    "onFileSystem:mdcl"
+    "onStartupFinished"
   ],
   "contributes": {
     "languages": [
@@ -159,17 +157,22 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run package",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "package": "node esbuild.js --production",
+    "compile:watch": "node esbuild.js --watch"
   },
   "devDependencies": {
     "@types/node": "^18.x",
     "@types/vscode": "^1.74.0",
     "@vscode/vsce": "^3.6.2",
+    "esbuild": "^0.25.10",
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "marked": "^9.1.0"
+    "@types/js-yaml": "^4.0.9",
+    "marked": "^9.1.0",
+    "yaml": "^2.8.1"
   }
 }
