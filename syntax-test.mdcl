@@ -1,0 +1,179 @@
+# Syntax Highlighting Test
+
+This file tests syntax highlighting in code blocks.
+
+## JavaScript Example
+
+```javascript
+function greet(name) {
+    const message = `Hello, ${name}!`;
+    console.log(message);
+    return message;
+}
+
+// Call the function
+const result = greet("World");
+```
+
+## Python Example
+
+```python
+def calculate_sum(numbers):
+    """Calculate the sum of a list of numbers."""
+    total = 0
+    for num in numbers:
+        total += num
+    return total
+
+# Test the function
+my_numbers = [1, 2, 3, 4, 5]
+result = calculate_sum(my_numbers)
+print(f"Sum: {result}")
+```
+
+## TypeScript Example
+
+```typescript
+interface User {
+    id: number;
+    name: string;
+    email: string;
+}
+
+class UserService {
+    private users: User[] = [];
+
+    addUser(user: User): void {
+        this.users.push(user);
+    }
+
+    findUserById(id: number): User | undefined {
+        return this.users.find(u => u.id === id);
+    }
+}
+```
+
+## Bash Example
+
+```bash
+#!/bin/bash
+
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Build project
+npm run build
+```
+
+## JSON Example
+
+```json
+{
+  "name": "my-project",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}
+```
+
+## HTML Example
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hello World</title>
+</head>
+<body>
+    <h1>Welcome</h1>
+    <p class="intro">This is a paragraph.</p>
+    <script src="app.js"></script>
+</body>
+</html>
+```
+
+## CSS Example
+
+```css
+.container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #f0f0f0;
+    padding: 20px;
+}
+
+.button {
+    background-color: #007bff;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+}
+
+.button:hover {
+    background-color: #0056b3;
+}
+```
+
+## Code blocks with MDCL commands still work
+
+### Block execute command (no syntax highlighting)
+
+```{{ execute }}
+echo "This should run"
+ls -la
+pwd
+```
+
+### Block execute with syntax highlighting
+
+```python{{ execute }}
+print("Hello, World!")
+print("This Python code is syntax highlighted AND executable!")
+for i in range(5):
+    print(f"Number: {i}")
+```
+
+```javascript{{ execute }}
+console.log("Hello from JavaScript!");
+const numbers = [1, 2, 3, 4, 5];
+numbers.forEach(n => console.log(n));
+```
+
+```bash{{ execute }}
+echo "This bash code is highlighted"
+ls -la
+pwd
+```
+
+### Individual commands in code block
+
+```
+`echo "First command"` {{ execute }}
+`echo "Second command"` {{ execute }}
+`ls -la` {{ execute }}
+```
+
+### Inline commands
+
+`npm install` {{ execute }}
+
+`echo "Copy me"` {{ copy }}
+
+`./package.json` {{ open }}
+
+### Admonitions
+
+`This is important information` {{ note }}
+
+`Remember to save your work` {{ tip }}

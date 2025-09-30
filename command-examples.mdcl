@@ -34,6 +34,19 @@ echo "This is a multiline test."
 echo "Goodbye!"
 ```
 
+You can add syntax highlighting to execute blocks by specifying the language:
+
+```python{{ execute }}
+print("Hello, World!")
+print("This code is syntax highlighted!")
+```
+
+```bash{{ execute }}
+echo "This bash code is highlighted"
+ls -la
+pwd
+```
+
 ### Execute in Different Terminals
 
 Target specific terminals by passing a terminal identifier:

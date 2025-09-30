@@ -6,3 +6,7 @@ node_modules
 .DS_Store
 *.log
 .env
+!*.mdclanswer.yaml
+!*.mdclanswers.yaml
+!*.mdclanswer.yml
+!*.mdclanswers.yml

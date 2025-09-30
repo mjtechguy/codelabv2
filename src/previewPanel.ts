@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { marked } from 'marked';
+import { markedHighlight } from 'marked-highlight';
+import hljs from 'highlight.js';
 import { CommandParser, MDCLCommand } from './commandParser';
 import { CommandExecutor } from './commandExecutor';
 import { QuizProcessor } from './quizProcessor';
@@ -64,6 +66,17 @@ export class MDCLPreviewPanel {
         this.executor = executor;
         this.quizProcessor = new QuizProcessor();
         this.answerKeyLoader = new AnswerKeyLoader();
+
+        // Configure marked with syntax highlighting
+        marked.use(
+            markedHighlight({
+                langPrefix: 'hljs language-',
+                highlight(code, lang) {
+                    const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+                    return hljs.highlight(code, { language }).value;
+                }
+            })
+        );
 
         // Initial update
         this.update();
@@ -195,9 +208,21 @@ export class MDCLPreviewPanel {
 
         // First, process block commands BEFORE markdown parsing
         let processedContent = content;
-        const blockCommandRegex = /```\{\{\s*(execute|copy|open)(?:\s+(?:['"]([^'"]+)['"]|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}\s*\n([^`]*)```/g;
 
-        processedContent = processedContent.replace(blockCommandRegex, (match, action, quotedTerminal, unquotedTerminal, interrupt, blockContent) => {
+        // Process code blocks that contain inline commands (must be done BEFORE markdown parsing to avoid syntax highlighting)
+        const codeBlockWithCommandsRegex = /```\s*\n((?:.*\{\{\s*(?:execute|copy|open).*\n?)+)```/g;
+        const inlineCommandBlocks = new Map<string, string>();
+
+        processedContent = processedContent.replace(codeBlockWithCommandsRegex, (match, blockContent) => {
+            const blockId = `INLINE_CMD_BLOCK_${Math.random().toString(36).substr(2, 9)}`;
+            inlineCommandBlocks.set(blockId, blockContent);
+            return `\`\`\`\n${blockId}\n\`\`\``;
+        });
+
+        // Updated regex to support language specification: ```python{{ execute }}
+        const blockCommandRegex = /```(\w+)?\{\{\s*(execute|copy|open)(?:\s+(?:['"]([^'"]+)['"]|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}\s*\n([^`]*)```/g;
+
+        processedContent = processedContent.replace(blockCommandRegex, (match, language, action, quotedTerminal, unquotedTerminal, interrupt, blockContent) => {
             // Extract commands from the block
             const commands: string[] = [];
             const backtickPattern = /`([^`]+)`/g;
@@ -218,7 +243,8 @@ export class MDCLPreviewPanel {
                 commands,
                 action: action || 'execute',
                 terminal: quotedTerminal || unquotedTerminal,
-                interrupt: interrupt === 'interrupt' || unquotedTerminal === 'interrupt'
+                interrupt: interrupt === 'interrupt' || unquotedTerminal === 'interrupt',
+                language: language  // Store language for syntax highlighting
             };
 
             // Store block data for later processing
@@ -261,7 +287,7 @@ export class MDCLPreviewPanel {
                 const blockRegex = new RegExp(`<pre><code[^>]*>${blockId}\\s*</code></pre>`, 'g');
 
                 htmlContent = htmlContent.replace(blockRegex, () => {
-                    const { commands, action, terminal, interrupt } = commandData;
+                    const { commands, action, terminal, interrupt, language } = commandData;
 
                     // Create command object
                     // Wrap in eval to reduce command echo
@@ -284,10 +310,20 @@ export class MDCLPreviewPanel {
                         }
                     }
 
-                    // Display commands nicely with a single execute button
-                    const displayCommands = commands.map((cmd: string) =>
-                        `<div class="block-command-line"><code>${this.escapeHtml(cmd)}</code></div>`
-                    ).join('');
+                    // Display commands with syntax highlighting if language is specified
+                    let displayCommands: string;
+                    if (language) {
+                        // Apply syntax highlighting to the entire block
+                        const codeText = commands.join('\n');
+                        const lang = hljs.getLanguage(language) ? language : 'plaintext';
+                        const highlighted = hljs.highlight(codeText, { language: lang }).value;
+                        displayCommands = `<pre><code class="hljs language-${lang}">${highlighted}</code></pre>`;
+                    } else {
+                        // No syntax highlighting - display as plain text
+                        displayCommands = commands.map((cmd: string) =>
+                            `<div class="block-command-line"><code>${this.escapeHtml(cmd)}</code></div>`
+                        ).join('');
+                    }
 
                     // Generate unique ID for this block command using counter
                     const commandId = `block_${this.commandCounter++}`;
@@ -305,6 +341,68 @@ export class MDCLPreviewPanel {
 
             // Clear the block commands for next render
             this.blockCommands.clear();
+        }
+
+        // Process inline command blocks (code blocks with individual command buttons)
+        if (inlineCommandBlocks.size > 0) {
+            inlineCommandBlocks.forEach((blockContent, blockId) => {
+                const blockRegex = new RegExp(`<pre><code[^>]*>${blockId}\\s*</code></pre>`, 'g');
+
+                htmlContent = htmlContent.replace(blockRegex, () => {
+                    // Process each line in the code block
+                    const lines = blockContent.split('\n');
+                    const processedLines = lines.map((line: string) => {
+                        // Check if this line contains a command
+                        const commandMatch = line.match(/`([^`]+)`\s*\{\{\s*(execute|copy|open)(?:\s+(?:['"]([^'"]+)['"]|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}/);
+
+                        if (commandMatch) {
+                            const [fullMatch, command, action, quotedTerminal, unquotedTerminal, interrupt] = commandMatch;
+                            // Generate unique ID for commands in code blocks
+                            const commandId = `cmd_${this.commandCounter++}`;
+                            const isExecuted = this.executedCommands.has(commandId);
+                            const executedClass = isExecuted ? ' executed' : '';
+
+                            // Build the command object
+                            const cmdObj: any = {
+                                command: command,
+                                action: action
+                            };
+
+                            let buttonClass = 'execute-btn';
+                            let buttonText = 'Run';
+
+                            switch (action) {
+                                case 'copy':
+                                    buttonClass = 'copy-btn';
+                                    buttonText = 'Copy';
+                                    break;
+                                case 'open':
+                                    buttonClass = 'open-btn';
+                                    buttonText = 'Open';
+                                    break;
+                                case 'execute':
+                                    const terminal = quotedTerminal || (unquotedTerminal !== 'interrupt' ? unquotedTerminal : undefined);
+                                    if (terminal) {
+                                        cmdObj.terminal = terminal;
+                                        buttonText = `Run in ${terminal}`;
+                                    } else if (interrupt === 'interrupt' || unquotedTerminal === 'interrupt') {
+                                        cmdObj.interrupt = true;
+                                        buttonText = 'Interrupt & Run';
+                                    }
+                                    break;
+                            }
+
+                            return `<code>${this.escapeHtml(command)}</code> <button class="${buttonClass}${executedClass}" data-command='${JSON.stringify(cmdObj).replace(/'/g, '&#39;')}' data-command-id="${commandId}">${buttonText}</button>`;
+                        }
+
+                        // Return the line as-is if it's not a command
+                        return this.escapeHtml(line);
+                    }).join('<br>');
+
+                    // Return as a styled code block with commands
+                    return `<div class="command-block">${processedLines}</div>`;
+                });
+            });
         }
 
         // Process inline commands (not in code blocks)
@@ -341,85 +439,6 @@ export class MDCLPreviewPanel {
 
             const quiz = this.quizProcessor.parseInlineQuiz(unescapedQuestion, quizId, answerKey);
             return this.quizProcessor.generateQuizHTML(quiz);
-        });
-
-        // Process commands inside regular code blocks (for individual command buttons)
-        const codeBlockRegex = /<pre><code[^>]*>([^<]*)<\/code><\/pre>/g;
-
-        htmlContent = htmlContent.replace(codeBlockRegex, (match, codeContent) => {
-            // Skip if this was a block command placeholder
-            if (codeContent.startsWith('MDCL_BLOCK_')) {
-                return match;
-            }
-
-            // Check if this code block contains individual command patterns
-            const commandPattern = /`([^`]+)`\s*\{\{\s*(execute|copy|open)(?:\s+(?:['"]([^'"]+)['"]|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}/g;
-
-            if (commandPattern.test(codeContent)) {
-                // Process each line in the code block
-                const lines = codeContent.split('\n');
-                const processedLines = lines.map((line: string) => {
-                    // Unescape HTML entities first
-                    const unescapedLine = line
-                        .replace(/&quot;/g, '"')
-                        .replace(/&#39;/g, "'")
-                        .replace(/&lt;/g, '<')
-                        .replace(/&gt;/g, '>')
-                        .replace(/&amp;/g, '&');
-
-                    // Check if this line contains a command
-                    const commandMatch = unescapedLine.match(/`([^`]+)`\s*\{\{\s*(execute|copy|open)(?:\s+(?:['"]([^'"]+)['"]|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}/);
-
-                    if (commandMatch) {
-                        const [fullMatch, command, action, quotedTerminal, unquotedTerminal, interrupt] = commandMatch;
-                        // Generate unique ID for commands in code blocks
-                        const commandId = `cmd_${this.commandCounter++}`;
-                        const isExecuted = this.executedCommands.has(commandId);
-                        const executedClass = isExecuted ? ' executed' : '';
-
-                        // Build the command object
-                        const cmdObj: any = {
-                            command: command,
-                            action: action
-                        };
-
-                        let buttonClass = 'execute-btn';
-                        let buttonText = 'Run';
-
-                        switch (action) {
-                            case 'copy':
-                                buttonClass = 'copy-btn';
-                                buttonText = 'Copy';
-                                break;
-                            case 'open':
-                                buttonClass = 'open-btn';
-                                buttonText = 'Open';
-                                break;
-                            case 'execute':
-                                const terminal = quotedTerminal || (unquotedTerminal !== 'interrupt' ? unquotedTerminal : undefined);
-                                if (terminal) {
-                                    cmdObj.terminal = terminal;
-                                    buttonText = `Run in ${terminal}`;
-                                } else if (interrupt === 'interrupt' || unquotedTerminal === 'interrupt') {
-                                    cmdObj.interrupt = true;
-                                    buttonText = 'Interrupt & Run';
-                                }
-                                break;
-                        }
-
-                        return `<code>${this.escapeHtml(command)}</code> <button class="${buttonClass}${executedClass}" data-command='${JSON.stringify(cmdObj).replace(/'/g, '&#39;')}' data-command-id="${commandId}">${buttonText}</button>`;
-                    }
-
-                    // Return the line as-is if it's not a command
-                    return this.escapeHtml(unescapedLine);
-                }).join('<br>');
-
-                // Return as a styled code block with commands
-                return `<div class="command-block">${processedLines}</div>`;
-            }
-
-            // Return unmodified if no commands found
-            return match;
         });
 
         return `<!DOCTYPE html>
@@ -500,6 +519,81 @@ export class MDCLPreviewPanel {
                     }
                     a {
                         color: var(--vscode-textLink-foreground);
+                    }
+                    /* Syntax highlighting styles using VSCode theme colors */
+                    pre code.hljs {
+                        display: block;
+                        overflow-x: auto;
+                        padding: 0;
+                        background: transparent;
+                    }
+                    .hljs {
+                        color: var(--vscode-editor-foreground);
+                    }
+                    .hljs-comment,
+                    .hljs-quote {
+                        color: var(--vscode-editor-foreground);
+                        opacity: 0.6;
+                        font-style: italic;
+                    }
+                    .hljs-keyword,
+                    .hljs-selector-tag,
+                    .hljs-subst {
+                        color: var(--vscode-symbolIcon-keywordForeground, #569CD6);
+                    }
+                    .hljs-number,
+                    .hljs-literal,
+                    .hljs-variable,
+                    .hljs-template-variable,
+                    .hljs-tag .hljs-attr {
+                        color: var(--vscode-symbolIcon-variableForeground, #9CDCFE);
+                    }
+                    .hljs-string,
+                    .hljs-doctag {
+                        color: var(--vscode-symbolIcon-stringForeground, #CE9178);
+                    }
+                    .hljs-title,
+                    .hljs-section,
+                    .hljs-selector-id {
+                        color: var(--vscode-symbolIcon-functionForeground, #DCDCAA);
+                        font-weight: bold;
+                    }
+                    .hljs-type,
+                    .hljs-class .hljs-title {
+                        color: var(--vscode-symbolIcon-classForeground, #4EC9B0);
+                    }
+                    .hljs-tag,
+                    .hljs-name,
+                    .hljs-attribute {
+                        color: var(--vscode-symbolIcon-propertyForeground, #569CD6);
+                        font-weight: normal;
+                    }
+                    .hljs-regexp,
+                    .hljs-link {
+                        color: var(--vscode-symbolIcon-operatorForeground, #D4D4D4);
+                    }
+                    .hljs-symbol,
+                    .hljs-bullet {
+                        color: var(--vscode-symbolIcon-enumMemberForeground, #4FC1FF);
+                    }
+                    .hljs-built_in,
+                    .hljs-builtin-name {
+                        color: var(--vscode-symbolIcon-methodForeground, #DCDCAA);
+                    }
+                    .hljs-meta {
+                        color: var(--vscode-symbolIcon-constantForeground, #4FC1FF);
+                    }
+                    .hljs-deletion {
+                        background: rgba(255, 0, 0, 0.2);
+                    }
+                    .hljs-addition {
+                        background: rgba(0, 255, 0, 0.2);
+                    }
+                    .hljs-emphasis {
+                        font-style: italic;
+                    }
+                    .hljs-strong {
+                        font-weight: bold;
                     }
                     .command-block {
                         background-color: var(--vscode-textBlockQuote-background);

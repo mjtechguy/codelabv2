@@ -172,7 +172,9 @@
   },
   "dependencies": {
     "@types/js-yaml": "^4.0.9",
+    "highlight.js": "^11.11.1",
     "marked": "^9.1.0",
+    "marked-highlight": "^2.2.2",
     "yaml": "^2.8.1"
   }
 }
