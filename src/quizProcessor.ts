@@ -7,7 +7,7 @@ export class QuizProcessor {
         this.quizCounter = 0;
     }
 
-    parseQuizBlock(content: string, explicitId?: string): QuizQuestion | null {
+    parseQuizBlock(content: string, explicitId?: string, answerKey?: string): QuizQuestion | null {
         const lines = content.trim().split('\n').filter(line => line.trim());
 
         if (lines.length < 2) return null;
@@ -41,18 +41,20 @@ export class QuizProcessor {
             id,
             question,
             options,
-            type: 'multiple-choice'
+            type: 'multiple-choice',
+            answerKey
         };
     }
 
-    parseInlineQuiz(question: string, explicitId?: string): QuizQuestion {
+    parseInlineQuiz(question: string, explicitId?: string, answerKey?: string): QuizQuestion {
         const id = explicitId || `quiz_${this.quizCounter++}`;
 
         return {
             id,
             question,
             options: [], // For text input style quiz
-            type: 'text'
+            type: 'text',
+            answerKey
         };
     }
 
@@ -73,8 +75,10 @@ export class QuizProcessor {
             </label>
         `).join('');
 
+        const answerKeyAttr = quiz.answerKey ? ` data-answer-key="${this.escapeHtml(quiz.answerKey)}"` : '';
+
         return `
-            <div class="quiz-container" data-quiz-id="${quiz.id}">
+            <div class="quiz-container" data-quiz-id="${quiz.id}"${answerKeyAttr}>
                 <div class="quiz-question">
                     <span class="quiz-icon">❔</span>
                     ${this.escapeHtml(quiz.question)}
@@ -93,8 +97,10 @@ export class QuizProcessor {
     }
 
     private generateTextInputHTML(quiz: QuizQuestion): string {
+        const answerKeyAttr = quiz.answerKey ? ` data-answer-key="${this.escapeHtml(quiz.answerKey)}"` : '';
+
         return `
-            <div class="quiz-container quiz-inline" data-quiz-id="${quiz.id}">
+            <div class="quiz-container quiz-inline" data-quiz-id="${quiz.id}"${answerKeyAttr}>
                 <div class="quiz-question-inline">
                     <span class="quiz-icon">❔</span>
                     ${this.escapeHtml(quiz.question)}

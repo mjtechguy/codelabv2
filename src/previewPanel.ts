@@ -18,6 +18,8 @@ export class MDCLPreviewPanel {
     private scrollPosition: number = 0;
     private executedCommands: Set<string> = new Set();
     private commandCounter: number = 0;
+    private scrollSyncEnabled: boolean = true;
+    private isScrolling: boolean = false;
     private quizProcessor: QuizProcessor;
     private answerKeyLoader: AnswerKeyLoader;
     private currentAnswerKey: AnswerKey | null = null;
@@ -83,11 +85,26 @@ export class MDCLPreviewPanel {
                     case 'saveScrollPosition':
                         this.scrollPosition = message.scrollPosition;
                         break;
+                    case 'syncScrollFromPreview':
+                        // Sync scroll from preview to editor
+                        if (this.scrollSyncEnabled && !this.isScrolling) {
+                            this.isScrolling = true;
+                            this.syncScrollToEditor(message.scrollPercentage);
+                            setTimeout(() => {
+                                this.isScrolling = false;
+                            }, 100);
+                        }
+                        break;
                     case 'checkQuizAnswer':
+                        // Load the appropriate answer key (custom or default)
+                        const answerKeyToUse = message.answerKey
+                            ? await this.answerKeyLoader.loadAnswerKey(this._document.uri, message.answerKey)
+                            : this.currentAnswerKey;
+
                         const result = this.answerKeyLoader.validateAnswer(
                             message.quizId,
                             message.answer,
-                            this.currentAnswerKey
+                            answerKeyToUse
                         );
                         this._panel.webview.postMessage({
                             type: 'quizResult',
@@ -101,6 +118,19 @@ export class MDCLPreviewPanel {
             this._disposables
         );
 
+        // Listen to editor scroll events
+        vscode.window.onDidChangeTextEditorVisibleRanges(event => {
+            if (event.textEditor.document.uri.toString() === this._document.uri.toString() &&
+                this.scrollSyncEnabled &&
+                !this.isScrolling) {
+                this.isScrolling = true;
+                this.syncScrollToPreview(event.textEditor);
+                setTimeout(() => {
+                    this.isScrolling = false;
+                }, 100);
+            }
+        }, null, this._disposables);
+
         vscode.workspace.onDidChangeTextDocument(
             (e) => {
                 if (e.document.uri.toString() === this._document.uri.toString()) {
@@ -110,6 +140,38 @@ export class MDCLPreviewPanel {
             null,
             this._disposables
         );
+    }
+
+    private syncScrollToPreview(editor: vscode.TextEditor) {
+        // Calculate the scroll percentage based on visible ranges
+        const visibleRanges = editor.visibleRanges;
+        if (visibleRanges.length === 0) return;
+
+        const firstVisibleLine = visibleRanges[0].start.line;
+        const totalLines = editor.document.lineCount;
+        const scrollPercentage = firstVisibleLine / totalLines;
+
+        // Send scroll position to preview
+        this._panel.webview.postMessage({
+            type: 'syncScrollFromEditor',
+            scrollPercentage: scrollPercentage
+        });
+    }
+
+    private syncScrollToEditor(scrollPercentage: number) {
+        // Find the editor for this document
+        const editor = vscode.window.visibleTextEditors.find(
+            e => e.document.uri.toString() === this._document.uri.toString()
+        );
+
+        if (!editor) return;
+
+        const totalLines = editor.document.lineCount;
+        const targetLine = Math.floor(scrollPercentage * totalLines);
+        const targetPosition = new vscode.Position(targetLine, 0);
+        const targetRange = new vscode.Range(targetPosition, targetPosition);
+
+        editor.revealRange(targetRange, vscode.TextEditorRevealType.AtTop);
     }
 
     private update() {
@@ -170,11 +232,11 @@ export class MDCLPreviewPanel {
         });
 
         // Process quiz blocks BEFORE markdown parsing
-        const quizBlockRegex = /```quiz(?:\s+id=["']([^"']+)["'])?\s*\n([^`]*)```/g;
+        const quizBlockRegex = /```quiz(?:\s+id=["']([^"']+)["'])?(?:\s+answerKey=["']([^"']+)["'])?\s*\n([^`]*)```/g;
         const quizBlocks = new Map<string, string>();
 
-        processedContent = processedContent.replace(quizBlockRegex, (match, quizId, quizContent) => {
-            const quiz = this.quizProcessor.parseQuizBlock(quizContent, quizId);
+        processedContent = processedContent.replace(quizBlockRegex, (match, quizId, answerKey, quizContent) => {
+            const quiz = this.quizProcessor.parseQuizBlock(quizContent, quizId, answerKey);
             if (quiz) {
                 const quizHtml = this.quizProcessor.generateQuizHTML(quiz);
                 const quizMarkerId = `QUIZ_BLOCK_${Math.random().toString(36).substr(2, 9)}`;
@@ -267,9 +329,9 @@ export class MDCLPreviewPanel {
         });
 
         // Process inline quiz questions
-        const inlineQuizRegex = /<code>([^<]+)<\/code>\s*\{\{\s*quiz(?:\s+id=(?:&#39;|&quot;)([^&]+)(?:&#39;|&quot;))?\s*\}\}/g;
+        const inlineQuizRegex = /<code>([^<]+)<\/code>\s*\{\{\s*quiz(?:\s+id=(?:&#39;|&quot;)([^&]+)(?:&#39;|&quot;))?(?:\s+answerKey=(?:&#39;|&quot;)([^&]+)(?:&#39;|&quot;))?\s*\}\}/g;
 
-        htmlContent = htmlContent.replace(inlineQuizRegex, (match, question, quizId) => {
+        htmlContent = htmlContent.replace(inlineQuizRegex, (match, question, quizId, answerKey) => {
             const unescapedQuestion = question
                 .replace(/&quot;/g, '"')
                 .replace(/&#39;/g, "'")
@@ -277,7 +339,7 @@ export class MDCLPreviewPanel {
                 .replace(/&gt;/g, '>')
                 .replace(/&amp;/g, '&');
 
-            const quiz = this.quizProcessor.parseInlineQuiz(unescapedQuestion, quizId);
+            const quiz = this.quizProcessor.parseInlineQuiz(unescapedQuestion, quizId, answerKey);
             return this.quizProcessor.generateQuizHTML(quiz);
         });
 
@@ -773,15 +835,27 @@ export class MDCLPreviewPanel {
                         }, 0);
                     }
 
-                    // Save scroll position on scroll
+                    // Save scroll position and sync with editor
                     let scrollTimer;
+                    let isScrollingFromEditor = false;
+
                     window.addEventListener('scroll', () => {
                         clearTimeout(scrollTimer);
                         scrollTimer = setTimeout(() => {
+                            // Save scroll position
                             vscode.postMessage({
                                 type: 'saveScrollPosition',
                                 scrollPosition: window.scrollY
                             });
+
+                            // Sync scroll to editor (if not scrolling from editor)
+                            if (!isScrollingFromEditor) {
+                                const scrollPercentage = window.scrollY / (document.body.scrollHeight - window.innerHeight);
+                                vscode.postMessage({
+                                    type: 'syncScrollFromPreview',
+                                    scrollPercentage: scrollPercentage
+                                });
+                            }
                         }, 100);
                     });
 
@@ -840,11 +914,15 @@ export class MDCLPreviewPanel {
                             return;
                         }
 
+                        // Get custom answer key if specified
+                        const answerKey = container.getAttribute('data-answer-key');
+
                         // Send to extension for validation
                         vscode.postMessage({
                             type: 'checkQuizAnswer',
                             quizId: quizId,
-                            answer: answer
+                            answer: answer,
+                            answerKey: answerKey
                         });
                     }
 
@@ -903,7 +981,7 @@ export class MDCLPreviewPanel {
                         }
                     }
 
-                    // Listen for quiz results from extension
+                    // Listen for messages from extension
                     window.addEventListener('message', (event) => {
                         const message = event.data;
                         if (message.type === 'quizResult') {
@@ -912,6 +990,14 @@ export class MDCLPreviewPanel {
                                 'Incorrect' + (message.explanation ? \`: \${message.explanation}\` : '');
 
                             showFeedback(message.quizId, message.correct, feedbackMessage, message.correctAnswer);
+                        } else if (message.type === 'syncScrollFromEditor') {
+                            // Handle scroll sync from editor
+                            isScrollingFromEditor = true;
+                            const targetY = message.scrollPercentage * (document.body.scrollHeight - window.innerHeight);
+                            window.scrollTo(0, targetY);
+                            setTimeout(() => {
+                                isScrollingFromEditor = false;
+                            }, 150);
                         }
                     });
                 </script>

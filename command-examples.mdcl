@@ -137,17 +137,62 @@ D) function
 Quizzes require a separate answer key file with `.mdclanswer.yaml` extension:
 
 ```yaml
-quizzes:
+answers:
   js-variables:
-    answer: "B"
+    correct: "B"
     explanation: "let creates block-scoped variables that can be reassigned"
 
   array-push:
-    answer: "push()"
+    correct: "push()"
     explanation: "The push() method adds elements to the end of an array"
 ```
 
+#### Default Answer Key Naming
+
+By default, CodeLab looks for answer key files with these naming patterns:
+- `filename.mdclanswer.yaml` (recommended)
+- `filename.mdclanswer.yml`
+- `filename.mdclanswer`
+
+**Example:** For `command-examples.mdcl`, create `command-examples.mdclanswer.yaml`
+
+`The .mdclanswer.yaml extension is visible and git-friendly` {{ info }}
+
 `Create an answer key file matching your .mdcl filename` {{ hint }}
+
+#### Hiding Answer Keys from Students
+
+To prevent students from seeing answer keys in your repository, add this to your `.gitignore`:
+
+```
+# Exclude quiz answer keys from version control
+*.mdclanswer.yaml
+*.mdclanswer.yml
+*.mdclanswer
+```
+
+`Answer keys with .mdclanswer extension won't be hidden files (no leading dot)` {{ tip }}
+
+`Use .gitignore to exclude answer keys from student repositories` {{ warning }}
+
+#### Custom Answer Key Names
+
+You can specify a custom answer key file for individual quizzes:
+
+```quiz id="custom-quiz" answerKey="my-custom-answers"
+Q: This quiz uses a custom answer key file
+A) Option A
+B) Option B
+```
+
+`What is your answer?` {{ quiz id="inline-custom" answerKey="my-custom-answers" }}
+
+When using custom answer keys, CodeLab will look for:
+- `my-custom-answers.yaml`
+- `my-custom-answers.yml`
+- `my-custom-answers`
+
+`Custom answer keys are useful for sharing answer keys across multiple .mdcl files` {{ tip }}
 
 `Never commit answer keys to public repositories` {{ danger }}
 
@@ -203,8 +248,8 @@ Here's a complete workflow combining multiple command types:
 | **Tip/Hint** | `text` {{ tip }} / {{ hint }} | Best practices |
 | **Warning** | `text` {{ warning }} | Important cautions |
 | **Danger** | `text` {{ danger }} | Critical alerts |
-| **Quiz (block)** | ```quiz id="x"``` | Multi-line quiz question |
-| **Quiz (inline)** | `question` {{ quiz id="x" }} | Single-line quiz |
+| **Quiz (block)** | ```quiz id="x"``` or ```quiz id="x" answerKey="file"``` | Multi-line quiz question |
+| **Quiz (inline)** | `question` {{ quiz id="x" }} or {{ quiz id="x" answerKey="file" }} | Single-line quiz |
 
 ---
 

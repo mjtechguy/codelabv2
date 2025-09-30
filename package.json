@@ -2,7 +2,7 @@
   "name": "codelabv2",
   "displayName": "CodeLabV2",
   "description": "Interactive markdown with executable commands for VS Code",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "engines": {
     "vscode": "^1.74.0"
   },

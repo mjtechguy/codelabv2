@@ -1,0 +1,28 @@
+# Answer Key for command-examples.mdcl
+# This file contains the correct answers and explanations for quiz questions
+
+version: "1.0"
+
+answers:
+  js-variables:
+    correct: "B"
+    explanation: "let creates block-scoped variables that can be reassigned. const creates block-scoped variables that cannot be reassigned, and var is function-scoped."
+    alternatives: ["b", "Let"]
+    caseSensitive: false
+
+  array-push:
+    correct: "push()"
+    explanation: "The push() method adds one or more elements to the end of an array and returns the new length of the array."
+    alternatives: ["push", ".push()", "array.push()"]
+    caseSensitive: false
+
+  typeof-null:
+    correct: "object"
+    explanation: "typeof null returns 'object' in JavaScript. This is actually a bug in JavaScript that has been kept for backward compatibility."
+    alternatives: ["\"object\"", "'object'"]
+    caseSensitive: false
+
+settings:
+  showExplanations: true
+  allowRetry: true
+  showScore: false

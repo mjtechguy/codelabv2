@@ -123,13 +123,68 @@ D) Option D
 `What is your question?` {{ quiz id="unique-id" }}
 ```
 
-**Answer Key File** (`.mdclanswer.yaml`):
+**Answer Key Files:**
+
+By default, CodeLab looks for answer key files matching your `.mdcl` filename:
+- `filename.mdclanswer.yaml` (recommended)
+- `filename.mdclanswer.yml`
+- `filename.mdclanswer`
+
+**Example:** For `tutorial.mdcl`, create `tutorial.mdclanswer.yaml`
+
+The `.mdclanswer` naming convention:
+- ✅ Is visible (not a hidden file)
+- ✅ Works well with git
+- ✅ Can be excluded via `.gitignore` to hide from students
+- ✅ Clearly associated with the source `.mdcl` file
+
+Example answer key structure:
 ```yaml
-quizzes:
+version: "1.0"
+
+answers:
   unique-id:
-    answer: "B"
+    correct: "B"
     explanation: "Optional explanation text"
+    alternatives: ["b", "option B"]  # Accept alternative answers
+    caseSensitive: false  # Case-insensitive matching
+
+settings:
+  showExplanations: true
+  allowRetry: true
 ```
+
+**Hiding Answer Keys from Students:**
+
+Add this to your `.gitignore` to exclude answer keys from version control:
+```
+# Exclude quiz answer keys
+*.mdclanswer.yaml
+*.mdclanswer.yml
+*.mdclanswer
+```
+
+**Custom Answer Key Names:**
+
+You can specify a custom answer key file for individual quizzes:
+
+```quiz id="quiz1" answerKey="custom-answers"
+Q: What is the question?
+A) Option A
+B) Option B
+```
+
+Or for inline quizzes:
+```
+`What is your question?` {{ quiz id="quiz2" answerKey="custom-answers" }}
+```
+
+When using custom answer keys, CodeLab will look for:
+- `custom-answers.yaml`
+- `custom-answers.yml`
+- `custom-answers`
+
+This is useful for sharing answer keys across multiple `.mdcl` files.
 
 
 ### Live Preview Panel
@@ -179,7 +234,7 @@ npm run package
 npx @vscode/vsce package
 
 # Install the generated VSIX
-code --install-extension codelabv2-1.1.0.vsix
+code --install-extension codelabv2-1.2.0.vsix
 ```
 
 ## Extension Settings
@@ -234,6 +289,24 @@ CodeLab uses `.mdcl` files (Markdown CodeLab) which are standard markdown files 
 - Single "Run All" button for entire block
 
 ## Release Notes
+
+### 1.2.0
+
+**New Features:**
+- **Synchronized Scrolling**: Editor and preview pane now scroll in sync for easier side-by-side editing
+- **Custom Answer Key Names**: Specify custom answer key files per quiz using `answerKey` parameter
+- **Flexible Answer Key Naming**: Support for shared answer keys across multiple `.mdcl` files
+
+**Improvements:**
+- Enhanced answer key loader with custom filename support and caching
+- Improved `.gitignore` patterns for better answer key management
+- Updated documentation with answer key naming conventions and best practices
+- Added comprehensive example answer key file (`command-examples.mdclanswer.yaml`)
+
+**Documentation:**
+- Clarified naming conventions for answer keys (visible, git-friendly)
+- Added gitignore examples for hiding answer keys from students
+- Expanded quiz documentation with custom answer key examples
 
 ### 1.1.0
 

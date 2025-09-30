@@ -4,6 +4,7 @@ export interface QuizQuestion {
     options: QuizOption[];
     type: 'multiple-choice' | 'text';
     multipleAnswers?: boolean;
+    answerKey?: string;
 }
 
 export interface QuizOption {

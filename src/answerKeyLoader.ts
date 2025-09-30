@@ -7,20 +7,33 @@ import { AnswerKey, Answer } from './types/quiz';
 export class AnswerKeyLoader {
     private answerKeys: Map<string, AnswerKey> = new Map();
 
-    async loadAnswerKey(mdclUri: vscode.Uri): Promise<AnswerKey | null> {
+    async loadAnswerKey(mdclUri: vscode.Uri, customName?: string): Promise<AnswerKey | null> {
         const mdclPath = mdclUri.fsPath;
+        const cacheKey = customName ? `${mdclPath}:${customName}` : mdclPath;
 
         // Check cache first
-        if (this.answerKeys.has(mdclPath)) {
-            return this.answerKeys.get(mdclPath)!;
+        if (this.answerKeys.has(cacheKey)) {
+            return this.answerKeys.get(cacheKey)!;
         }
 
-        // Try different answer key locations
-        const possiblePaths = [
-            mdclPath.replace('.mdcl', '.mdclanswer.yaml'),
-            mdclPath.replace('.mdcl', '.mdclanswer.yml'),
-            mdclPath.replace('.mdcl', '.mdclanswer'),
-        ];
+        let possiblePaths: string[];
+
+        if (customName) {
+            // Use custom answer key filename
+            const dir = path.dirname(mdclPath);
+            possiblePaths = [
+                path.join(dir, `${customName}.yaml`),
+                path.join(dir, `${customName}.yml`),
+                path.join(dir, customName),
+            ];
+        } else {
+            // Use default answer key locations
+            possiblePaths = [
+                mdclPath.replace('.mdcl', '.mdclanswer.yaml'),
+                mdclPath.replace('.mdcl', '.mdclanswer.yml'),
+                mdclPath.replace('.mdcl', '.mdclanswer'),
+            ];
+        }
 
         for (const answerPath of possiblePaths) {
             if (fs.existsSync(answerPath)) {
@@ -29,7 +42,7 @@ export class AnswerKeyLoader {
                     const answerKey = this.parseAnswerKey(content, answerPath);
 
                     if (answerKey) {
-                        this.answerKeys.set(mdclPath, answerKey);
+                        this.answerKeys.set(cacheKey, answerKey);
                         console.log(`Loaded answer key from: ${answerPath}`);
                         return answerKey;
                     }
@@ -39,7 +52,7 @@ export class AnswerKeyLoader {
             }
         }
 
-        console.log(`No answer key found for: ${mdclPath}`);
+        console.log(`No answer key found for: ${mdclPath}${customName ? ` (custom: ${customName})` : ''}`);
         return null;
     }
 
