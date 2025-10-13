@@ -102,10 +102,10 @@ export class MDCLPreviewPanel {
                         // Sync scroll from preview to editor
                         if (this.scrollSyncEnabled && !this.isScrolling) {
                             this.isScrolling = true;
-                            this.syncScrollToEditor(message.scrollPercentage);
+                            this.syncScrollToEditor(message.scrollRatio);
                             setTimeout(() => {
                                 this.isScrolling = false;
-                            }, 100);
+                            }, 50);
                         }
                         break;
                     case 'checkQuizAnswer':
@@ -140,7 +140,7 @@ export class MDCLPreviewPanel {
                 this.syncScrollToPreview(event.textEditor);
                 setTimeout(() => {
                     this.isScrolling = false;
-                }, 100);
+                }, 50);
             }
         }, null, this._disposables);
 
@@ -156,22 +156,26 @@ export class MDCLPreviewPanel {
     }
 
     private syncScrollToPreview(editor: vscode.TextEditor) {
-        // Calculate the scroll percentage based on visible ranges
+        // Calculate the scroll position based on visible ranges
         const visibleRanges = editor.visibleRanges;
         if (visibleRanges.length === 0) return;
 
         const firstVisibleLine = visibleRanges[0].start.line;
         const totalLines = editor.document.lineCount;
-        const scrollPercentage = firstVisibleLine / totalLines;
+
+        // Use a more accurate calculation that accounts for content at top and bottom
+        // This provides better alignment when content heights differ
+        const scrollRatio = totalLines > 1 ? firstVisibleLine / (totalLines - 1) : 0;
 
         // Send scroll position to preview
         this._panel.webview.postMessage({
             type: 'syncScrollFromEditor',
-            scrollPercentage: scrollPercentage
+            scrollRatio: scrollRatio,
+            line: firstVisibleLine
         });
     }
 
-    private syncScrollToEditor(scrollPercentage: number) {
+    private syncScrollToEditor(scrollRatio: number) {
         // Find the editor for this document
         const editor = vscode.window.visibleTextEditors.find(
             e => e.document.uri.toString() === this._document.uri.toString()
@@ -180,8 +184,9 @@ export class MDCLPreviewPanel {
         if (!editor) return;
 
         const totalLines = editor.document.lineCount;
-        const targetLine = Math.floor(scrollPercentage * totalLines);
-        const targetPosition = new vscode.Position(targetLine, 0);
+        // Use the ratio to calculate target line, accounting for document length
+        const targetLine = Math.floor(scrollRatio * (totalLines - 1));
+        const targetPosition = new vscode.Position(Math.max(0, targetLine), 0);
         const targetRange = new vscode.Range(targetPosition, targetPosition);
 
         editor.revealRange(targetRange, vscode.TextEditorRevealType.AtTop);
@@ -290,10 +295,20 @@ export class MDCLPreviewPanel {
                     const { commands, action, terminal, interrupt, language } = commandData;
 
                     // Create command object
-                    // Wrap in eval to reduce command echo
-                    const joinedCommands = commands.join(' && ');
+                    // For execute: join with && to chain commands
+                    // For copy/open: join with newlines to preserve formatting
+                    let joinedCommands: string;
+                    if (action === 'execute') {
+                        joinedCommands = commands.join(' && ');
+                    } else {
+                        joinedCommands = commands.join('\n');
+                    }
+
                     const cmdObj: any = {
-                        command: `eval "${joinedCommands.replace(/"/g, '\\"')}"`,
+                        // Only wrap execute commands in eval to reduce echo
+                        command: action === 'execute'
+                            ? `eval "${joinedCommands.replace(/"/g, '\\"')}"`
+                            : joinedCommands,
                         action: action
                     };
 
@@ -308,6 +323,12 @@ export class MDCLPreviewPanel {
                             cmdObj.interrupt = true;
                             buttonText = 'Interrupt & Run All';
                         }
+                    } else if (action === 'copy') {
+                        buttonClass = 'copy-btn';
+                        buttonText = 'Copy All';
+                    } else if (action === 'open') {
+                        buttonClass = 'open-btn';
+                        buttonText = 'Open All';
                     }
 
                     // Display commands with syntax highlighting if language is specified
@@ -356,7 +377,7 @@ export class MDCLPreviewPanel {
                         const commandMatch = line.match(/`([^`]+)`\s*\{\{\s*(execute|copy|open)(?:\s+(?:['"]([^'"]+)['"]|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}/);
 
                         if (commandMatch) {
-                            const [fullMatch, command, action, quotedTerminal, unquotedTerminal, interrupt] = commandMatch;
+                            const [_fullMatch, command, action, quotedTerminal, unquotedTerminal, interrupt] = commandMatch;
                             // Generate unique ID for commands in code blocks
                             const commandId = `cmd_${this.commandCounter++}`;
                             const isExecuted = this.executedCommands.has(commandId);
@@ -408,14 +429,14 @@ export class MDCLPreviewPanel {
         // Process inline commands (not in code blocks)
         const inlineCommandRegex = /<code>([^<]+)<\/code>\s*\{\{\s*(execute|copy|open)(?:\s+(?:&#39;([^&]+)&#39;|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}/g;
 
-        htmlContent = htmlContent.replace(inlineCommandRegex, (match, command, action, quotedTerminal, unquotedTerminal, interrupt) => {
+        htmlContent = htmlContent.replace(inlineCommandRegex, (_match, command, action, quotedTerminal, unquotedTerminal, interrupt) => {
             return this.createCommandButton(command, action, quotedTerminal, unquotedTerminal, interrupt);
         });
 
         // Process note, info, tip, warning, and danger messages
         const messageRegex = /<code>([^<]+)<\/code>\s*\{\{\s*(note|info|tip|warning|danger|hint)\s*\}\}/g;
 
-        htmlContent = htmlContent.replace(messageRegex, (match, message, type) => {
+        htmlContent = htmlContent.replace(messageRegex, (_match, message, type) => {
             const unescapedMessage = message
                 .replace(/&quot;/g, '"')
                 .replace(/&#39;/g, "'")
@@ -429,7 +450,7 @@ export class MDCLPreviewPanel {
         // Process inline quiz questions
         const inlineQuizRegex = /<code>([^<]+)<\/code>\s*\{\{\s*quiz(?:\s+id=(?:&#39;|&quot;)([^&]+)(?:&#39;|&quot;))?(?:\s+answerKey=(?:&#39;|&quot;)([^&]+)(?:&#39;|&quot;))?\s*\}\}/g;
 
-        htmlContent = htmlContent.replace(inlineQuizRegex, (match, question, quizId, answerKey) => {
+        htmlContent = htmlContent.replace(inlineQuizRegex, (_match, question, quizId, answerKey) => {
             const unescapedQuestion = question
                 .replace(/&quot;/g, '"')
                 .replace(/&#39;/g, "'")
@@ -944,13 +965,14 @@ export class MDCLPreviewPanel {
 
                             // Sync scroll to editor (if not scrolling from editor)
                             if (!isScrollingFromEditor) {
-                                const scrollPercentage = window.scrollY / (document.body.scrollHeight - window.innerHeight);
+                                const maxScroll = document.body.scrollHeight - window.innerHeight;
+                                const scrollRatio = maxScroll > 0 ? window.scrollY / maxScroll : 0;
                                 vscode.postMessage({
                                     type: 'syncScrollFromPreview',
-                                    scrollPercentage: scrollPercentage
+                                    scrollRatio: scrollRatio
                                 });
                             }
-                        }, 100);
+                        }, 50);
                     });
 
                     // Save scroll position before unload
@@ -1085,13 +1107,20 @@ export class MDCLPreviewPanel {
 
                             showFeedback(message.quizId, message.correct, feedbackMessage, message.correctAnswer);
                         } else if (message.type === 'syncScrollFromEditor') {
-                            // Handle scroll sync from editor
+                            // Handle scroll sync from editor with smooth behavior
                             isScrollingFromEditor = true;
-                            const targetY = message.scrollPercentage * (document.body.scrollHeight - window.innerHeight);
-                            window.scrollTo(0, targetY);
+                            const maxScroll = document.body.scrollHeight - window.innerHeight;
+                            const targetY = message.scrollRatio * maxScroll;
+
+                            // Use smooth scrolling for better visual experience
+                            window.scrollTo({
+                                top: targetY,
+                                behavior: 'instant'
+                            });
+
                             setTimeout(() => {
                                 isScrollingFromEditor = false;
-                            }, 150);
+                            }, 100);
                         }
                     });
                 </script>
@@ -1149,34 +1178,28 @@ export class MDCLPreviewPanel {
     private createMessageBox(message: string, type: 'note' | 'info' | 'tip' | 'warning' | 'danger' | 'hint'): string {
         let icon = '';
         let className = 'admonition';
-        let label = '';
 
         switch (type) {
             case 'note':
                 icon = '📝';
                 className += ' admonition-note';
-                label = 'NOTE';
                 break;
             case 'info':
                 icon = 'ℹ️';
                 className += ' admonition-info';
-                label = 'INFO';
                 break;
             case 'tip':
             case 'hint':
                 icon = '💡';
                 className += ' admonition-tip';
-                label = 'TIP';
                 break;
             case 'warning':
                 icon = '⚠️';
                 className += ' admonition-warning';
-                label = 'WARNING';
                 break;
             case 'danger':
                 icon = '🔥';
                 className += ' admonition-danger';
-                label = 'DANGER';
                 break;
         }
 

@@ -39,12 +39,43 @@ You can add syntax highlighting to execute blocks by specifying the language:
 ```python{{ execute }}
 print("Hello, World!")
 print("This code is syntax highlighted!")
+for i in range(3):
+    print(f"Count: {i}")
 ```
 
 ```bash{{ execute }}
 echo "This bash code is highlighted"
 ls -la
 pwd
+```
+
+```javascript{{ execute }}
+console.log("JavaScript with syntax highlighting");
+const numbers = [1, 2, 3, 4, 5];
+numbers.forEach(n => console.log(n));
+```
+
+### Block Execute in Different Terminals
+
+Run block commands in specific terminals:
+
+```bash{{ execute 'server' }}
+echo "Starting server in dedicated terminal"
+npm run dev
+```
+
+```bash{{ execute 'tests' }}
+echo "Running tests in separate terminal"
+npm test
+```
+
+### Block Interrupt and Execute
+
+Interrupt any running command block before executing:
+
+```{{ execute interrupt }}
+echo "This will interrupt any running command"
+echo "Then execute this entire block"
 ```
 
 ### Execute in Different Terminals
@@ -71,6 +102,40 @@ Copy text directly to the clipboard:
 
 `export API_KEY=your-api-key-here` {{ copy }}
 
+### Block Copy
+
+Copy multiple lines at once:
+
+```{{ copy }}
+export DATABASE_URL=postgresql://localhost:5432/mydb
+export REDIS_HOST=localhost
+export REDIS_PORT=6379
+```
+
+Copy code with syntax highlighting:
+
+```javascript{{ copy }}
+function greet(name) {
+    return `Hello, ${name}!`;
+}
+console.log(greet("World"));
+```
+
+```python{{ copy }}
+def calculate_sum(numbers):
+    return sum(numbers)
+
+result = calculate_sum([1, 2, 3, 4, 5])
+print(f"Sum: {result}")
+```
+
+```bash{{ copy }}
+# Setup script
+mkdir -p src/components
+touch src/index.js
+npm install --save-dev jest
+```
+
 ---
 
 ## Open Files
@@ -80,6 +145,16 @@ Open files in the VS Code editor:
 `./README.md` {{ open }}
 
 `./package.json` {{ open }}
+
+### Block Open
+
+Open multiple files (opens each file sequentially):
+
+```{{ open }}
+./src/index.js
+./src/app.js
+./package.json
+```
 
 ---
 
@@ -249,6 +324,8 @@ Here's a complete workflow combining multiple command types:
 
 ## Command Summary
 
+### Inline Commands
+
 | Command | Syntax | Description |
 |---------|--------|-------------|
 | **Execute** | `command` {{ execute }} | Run shell command |
@@ -256,13 +333,37 @@ Here's a complete workflow combining multiple command types:
 | **Interrupt** | `command` {{ execute interrupt }} | Interrupt and run command |
 | **Copy** | `text` {{ copy }} | Copy to clipboard |
 | **Open** | `./path/file` {{ open }} | Open file in editor |
+
+### Block Commands
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| **Block Execute** | ```{{ execute }}``` | Run all commands in block with "Run All" button |
+| **Block Execute (lang)** | ```python{{ execute }}``` | Execute with syntax highlighting |
+| **Block Execute (terminal)** | ```{{ execute 'name' }}``` | Run block in specific terminal |
+| **Block Execute (interrupt)** | ```{{ execute interrupt }}``` | Interrupt and run block |
+| **Block Copy** | ```{{ copy }}``` | Copy all lines with "Copy All" button |
+| **Block Copy (lang)** | ```javascript{{ copy }}``` | Copy with syntax highlighting |
+| **Block Open** | ```{{ open }}``` | Open all files with "Open All" button |
+
+### Admonitions
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
 | **Note** | `text` {{ note }} | General information |
 | **Info** | `text` {{ info }} | Technical details |
 | **Tip/Hint** | `text` {{ tip }} / {{ hint }} | Best practices |
 | **Warning** | `text` {{ warning }} | Important cautions |
 | **Danger** | `text` {{ danger }} | Critical alerts |
-| **Quiz (block)** | ```quiz id="x"``` or ```quiz id="x" answerKey="file"``` | Multi-line quiz question |
-| **Quiz (inline)** | `question` {{ quiz id="x" }} or {{ quiz id="x" answerKey="file" }} | Single-line quiz |
+
+### Quiz System
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| **Quiz (block)** | ```quiz id="x"``` | Multi-line quiz question |
+| **Quiz (block w/ key)** | ```quiz id="x" answerKey="file"``` | Quiz with custom answer key |
+| **Quiz (inline)** | `question` {{ quiz id="x" }} | Single-line quiz |
+| **Quiz (inline w/ key)** | `question` {{ quiz id="x" answerKey="file" }} | Inline quiz with custom key |
 
 ---
 
