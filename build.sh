@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# CodeLab Extension Build Script
+# VSLabsAI Extension Build Script
 # This script builds the VS Code extension and creates a VSIX file
 
-echo "🚀 CodeLab Extension Builder"
+echo "🚀 VSLabsAI Extension Builder"
 echo "=========================="
 echo ""
 

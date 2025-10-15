@@ -1,10 +1,10 @@
-# CodeLab VS Code Extension
+# VSLabsAI VS Code Extension
 
 <p align="center">
-  <img width="300" height="300" src="icons/codelab-icon.png" alt="CodeLab Logo">
+  <img width="300" height="300" src="icons/vslabsai-icon.png" alt="VSLabsAI Logo">
 </p>
 
-CodeLab is a Visual Studio Code extension that transforms markdown files (`.mdcl`) into interactive command execution environments. Perfect for creating executable documentation, tutorials, training materials, technical runbooks, and interactive quizzes with live command execution capabilities.
+VSLabsAI is a Visual Studio Code extension that transforms markdown files (`.mdcl`) into interactive command execution environments. Perfect for creating executable documentation, tutorials, training materials, technical runbooks, and interactive quizzes with live command execution capabilities.
 
 ## Works With
 
@@ -16,7 +16,7 @@ CodeLab is a Visual Studio Code extension that transforms markdown files (`.mdcl
 ## Features
 
 ### Interactive Markdown Commands
-CodeLab extends standard markdown with special command tags that become executable:
+VSLabsAI extends standard markdown with special command tags that become executable:
 
 - **Execute in Terminal**: Run commands in VS Code's integrated terminal with visual feedback
 - **Copy to Clipboard**: Click to copy code snippets directly to clipboard
@@ -26,6 +26,7 @@ CodeLab extends standard markdown with special command tags that become executab
 - **Execution Tracking**: Visual indicators (green checkmark) for executed commands
 - **Admonitions**: Styled callout boxes for notes, tips, warnings, and danger alerts
 - **Interactive Quizzes**: Create multiple-choice quizzes with answer key validation
+- **AI Chat Assistant**: Sidebar with context-aware AI to answer questions about tutorials (see [QUICK-START-CHAT.md](QUICK-START-CHAT.md))
 
 ### Command Syntax
 
@@ -41,7 +42,7 @@ Embed executable commands in markdown using backticks and action tags:
 `echo "Hello World"` {{ execute }}
 ```
 
-- Executing a command in the main CodeLab terminal:
+- Executing a command in the main VSLabsAI terminal:
 ```
 `npm install` {{ execute }}
 ```
@@ -125,7 +126,7 @@ D) Option D
 
 **Answer Key Files:**
 
-By default, CodeLab looks for answer key files matching your `.mdcl` filename:
+By default, VSLabsAI looks for answer key files matching your `.mdcl` filename:
 - `filename.mdclanswer.yaml` (recommended)
 - `filename.mdclanswer.yml`
 - `filename.mdclanswer`
@@ -179,7 +180,7 @@ Or for inline quizzes:
 `What is your question?` {{ quiz id="quiz2" answerKey="custom-answers" }}
 ```
 
-When using custom answer keys, CodeLab will look for:
+When using custom answer keys, VSLabsAI will look for:
 - `custom-answers.yaml`
 - `custom-answers.yml`
 - `custom-answers`
@@ -234,12 +235,12 @@ npm run package
 npx @vscode/vsce package
 
 # Install the generated VSIX
-code --install-extension codelabv2-1.2.0.vsix
+code --install-extension vslabsai-1.0.0.vsix
 ```
 
 ## Extension Settings
 
-Configure CodeLab through VS Code settings:
+Configure VSLabsAI through VS Code settings:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
@@ -252,7 +253,7 @@ Configure CodeLab through VS Code settings:
 
 ## Architecture
 
-CodeLab is built with:
+VSLabsAI is built with:
 - **TypeScript** for type safety and better IDE support
 - **VS Code Extension API** for deep editor integration
 - **Marked.js** for markdown parsing and rendering
@@ -263,11 +264,11 @@ CodeLab is built with:
 
 ## File Format
 
-CodeLab uses `.mdcl` files (Markdown CodeLab) which are standard markdown files with embedded executable commands. The extension automatically activates when opening `.mdcl` files.
+VSLabsAI uses `.mdcl` files (Markdown VSLabsAI) which are standard markdown files with embedded executable commands. The extension automatically activates when opening `.mdcl` files.
 
 ## Terminal Management
 
-- Commands execute in terminals named "CodeLab - main" by default
+- Commands execute in terminals named "VSLabsAI - main" by default
 - Create named terminals with `{{ execute 'terminalName' }}`
 - Terminals persist across command executions
 - Use `{{ execute interrupt }}` to send Ctrl+C before executing
@@ -392,4 +393,4 @@ This project is licensed under the MIT License.
 
 ---
 
-**Enjoy creating interactive documentation with CodeLab!**
+**Enjoy creating interactive documentation with VSLabsAI!**

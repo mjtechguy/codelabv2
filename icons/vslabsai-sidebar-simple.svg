@@ -1,0 +1,11 @@
+<svg width="28" height="28" viewBox="0 0 28 28" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+  <!-- VSLabsAI Simple Icon -->
+  <!-- AI Brain symbol -->
+  <circle cx="14" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <circle cx="11" cy="9" r="1.5"/>
+  <circle cx="17" cy="9" r="1.5"/>
+  <path d="M11 12 Q14 14 17 12" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <!-- Lab beaker base -->
+  <path d="M10 16 L10 20 Q10 22 12 22 L16 22 Q18 22 18 20 L18 16" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <path d="M8 20 L20 20" stroke="currentColor" stroke-width="1"/>
+</svg>

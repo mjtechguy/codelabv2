@@ -1,8 +1,8 @@
 {
-  "name": "codelabv2",
-  "displayName": "CodeLabV2",
-  "description": "Interactive markdown with executable commands for VS Code",
-  "version": "1.3.0",
+  "name": "vslabsai",
+  "displayName": "VSLabsAI",
+  "description": "AI-powered interactive tutorials and learning assistant for VS Code",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -13,10 +13,10 @@
   "publisher": "mjtechguy",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mjtechguy/codelabv2"
+    "url": "https://github.com/mjtechguy/vslabsai"
   },
   "license": "MIT",
-  "icon": "icons/codelab-icon.png",
+  "icon": "icons/vslabsai-icon.png",
   "main": "./out/extension.js",
   "activationEvents": [
     "onStartupFinished"
@@ -49,6 +49,24 @@
         }
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vslabsai",
+          "title": "VSLabsAI",
+          "icon": "icons/vslabsai-sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "vslabsai": [
+        {
+          "type": "webview",
+          "id": "vslabsai.chatView",
+          "name": "AI Learning Assistant"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "mdcl.openPreview",
@@ -77,6 +95,12 @@
         "command": "mdcl.refreshCodeLens",
         "title": "Refresh Code Lenses",
         "category": "MDCL"
+      },
+      {
+        "command": "mdcl.openChat",
+        "title": "Open Chat",
+        "icon": "$(comment-discussion)",
+        "category": "MDCL"
       }
     ],
     "menus": {
@@ -84,6 +108,11 @@
         {
           "when": "resourceExtname == .mdcl",
           "command": "mdcl.openPreview",
+          "group": "navigation"
+        },
+        {
+          "when": "resourceExtname == .mdcl",
+          "command": "mdcl.openChat",
           "group": "navigation"
         }
       ],
@@ -123,6 +152,10 @@
         {
           "command": "mdcl.refreshCodeLens",
           "when": "resourceExtname == .mdcl"
+        },
+        {
+          "command": "mdcl.openChat",
+          "when": "resourceExtname == .mdcl"
         }
       ]
     },
@@ -152,6 +185,16 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically open preview panel when opening MDCL files"
+        },
+        "mdcl.chat.autoOpenChat": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically open chat panel when opening MDCL files"
+        },
+        "mdcl.chat.configPath": {
+          "type": "string",
+          "default": ".codelab/config.yaml",
+          "description": "Path to chat configuration file relative to workspace root"
         }
       }
     }
@@ -172,6 +215,7 @@
   },
   "dependencies": {
     "@types/js-yaml": "^4.0.9",
+    "gpt-tokenizer": "^3.2.0",
     "highlight.js": "^11.11.1",
     "marked": "^9.1.0",
     "marked-highlight": "^2.2.2",

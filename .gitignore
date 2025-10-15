@@ -10,3 +10,8 @@ node_modules
 !*.mdclanswers.yaml
 !*.mdclanswer.yml
 !*.mdclanswers.yml
+# CodeLab configuration (contains API keys)
+.codelab/
+
+# Internal documentation
+internal-docs/

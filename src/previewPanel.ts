@@ -2,7 +2,16 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
-import hljs from 'highlight.js';
+import hljs from 'highlight.js/lib/core';
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import bash from 'highlight.js/lib/languages/bash';
+import yaml from 'highlight.js/lib/languages/yaml';
+import json from 'highlight.js/lib/languages/json';
+import xml from 'highlight.js/lib/languages/xml';
+import css from 'highlight.js/lib/languages/css';
+import sql from 'highlight.js/lib/languages/sql';
 import { CommandParser, MDCLCommand } from './commandParser';
 import { CommandExecutor } from './commandExecutor';
 import { QuizProcessor } from './quizProcessor';
@@ -33,20 +42,25 @@ export class MDCLPreviewPanel {
     ): MDCLPreviewPanel {
         const column = vscode.ViewColumn.Beside;
 
+        // If we already have a panel, show it.
         if (MDCLPreviewPanel.currentPanel) {
-            MDCLPreviewPanel.currentPanel._panel.reveal(column);
+            // Update document first
             MDCLPreviewPanel.currentPanel._document = document;
+            // Then update the content
             MDCLPreviewPanel.currentPanel.update();
+            // Finally reveal the panel
+            MDCLPreviewPanel.currentPanel._panel.reveal(column);
             return MDCLPreviewPanel.currentPanel;
         }
-
+        // Otherwise, create a new panel.
         const panel = vscode.window.createWebviewPanel(
             'mdclPreview',
-            'CodeLab Preview',
+            'VSLabsAI Preview',
             column,
             {
                 enableScripts: true,
-                localResourceRoots: [extensionUri]
+                localResourceRoots: [extensionUri],
+                retainContextWhenHidden: true  // Keep webview content when panel is hidden
             }
         );
 
@@ -67,13 +81,39 @@ export class MDCLPreviewPanel {
         this.quizProcessor = new QuizProcessor();
         this.answerKeyLoader = new AnswerKeyLoader();
 
+        // Register highlight.js languages
+        hljs.registerLanguage('javascript', javascript);
+        hljs.registerLanguage('typescript', typescript);
+        hljs.registerLanguage('python', python);
+        hljs.registerLanguage('bash', bash);
+        hljs.registerLanguage('yaml', yaml);
+        hljs.registerLanguage('yml', yaml);
+        hljs.registerLanguage('json', json);
+        hljs.registerLanguage('xml', xml);
+        hljs.registerLanguage('html', xml);
+        hljs.registerLanguage('css', css);
+        hljs.registerLanguage('sql', sql);
+        hljs.registerLanguage('sh', bash);
+        hljs.registerLanguage('shell', bash);
+        hljs.registerLanguage('js', javascript);
+        hljs.registerLanguage('ts', typescript);
+        hljs.registerLanguage('py', python);
+
         // Configure marked with syntax highlighting
         marked.use(
             markedHighlight({
                 langPrefix: 'hljs language-',
                 highlight(code, lang) {
-                    const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-                    return hljs.highlight(code, { language }).value;
+                    // If language exists, use it; otherwise return unhighlighted code
+                    if (lang && hljs.getLanguage(lang)) {
+                        try {
+                            return hljs.highlight(code, { language: lang }).value;
+                        } catch (err) {
+                            console.warn('Highlight.js error for language', lang, err);
+                        }
+                    }
+                    // Return the code without highlighting for unknown languages
+                    return code;
                 }
             })
         );
@@ -467,7 +507,7 @@ export class MDCLPreviewPanel {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>CodeLab Preview</title>
+                <title>VSLabsAI Preview</title>
                 <style>
                     body {
                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -497,9 +537,10 @@ export class MDCLPreviewPanel {
                     }
                     pre {
                         background-color: var(--vscode-textBlockQuote-background);
-                        padding: 12px;
+                        padding: 8px 12px;
                         border-radius: 4px;
                         overflow-x: auto;
+                        margin: 8px 0;
                     }
                     button {
                         margin-left: 8px;
@@ -618,11 +659,11 @@ export class MDCLPreviewPanel {
                     }
                     .command-block {
                         background-color: var(--vscode-textBlockQuote-background);
-                        padding: 16px;
+                        padding: 8px 12px;
                         border-radius: 6px;
-                        margin: 16px 0;
+                        margin: 8px 0;
                         font-family: 'Courier New', Courier, monospace;
-                        line-height: 1.8;
+                        line-height: 1.6;
                         border-left: 4px solid var(--vscode-textLink-foreground);
                     }
                     .command-block code {
@@ -635,8 +676,8 @@ export class MDCLPreviewPanel {
                         margin: 2px 0;
                     }
                     .block-execute-btn-container {
-                        margin-top: 16px;
-                        padding-top: 12px;
+                        margin-top: 8px;
+                        padding-top: 8px;
                         border-top: 1px solid var(--vscode-editorWidget-border);
                     }
                     .block-execute-btn {
@@ -1220,6 +1261,10 @@ export class MDCLPreviewPanel {
             "'": '&#039;'
         };
         return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    public getDocument(): vscode.TextDocument {
+        return this._document;
     }
 
     public dispose() {

@@ -3,37 +3,175 @@
   "name": "MDCL",
   "patterns": [
     {
-      "include": "#mdcl-command"
+      "include": "#mdcl-command-block"
+    },
+    {
+      "include": "#mdcl-command-inline"
+    },
+    {
+      "include": "#fenced-code-block"
     },
     {
       "include": "text.html.markdown"
     }
   ],
   "repository": {
-    "mdcl-command": {
+    "mdcl-command-block": {
+      "begin": "(\\{\\{)\\s*(execute|copy|open)\\s*(\\}\\})",
+      "end": "(\\{\\{)\\s*(execute|copy|open)\\s*(\\}\\})",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.mdcl" },
+        "2": { "name": "entity.name.function.mdcl" },
+        "3": { "name": "keyword.control.mdcl" }
+      },
+      "endCaptures": {
+        "1": { "name": "keyword.control.mdcl" },
+        "2": { "name": "entity.name.function.mdcl" },
+        "3": { "name": "keyword.control.mdcl" }
+      },
       "patterns": [
         {
-          "name": "meta.mdcl.command",
-          "match": "(`[^`]+`)\\s*(\\{\\{\\s*(execute|copy|open)(\\s+'[^']+')?(\\s+interrupt)?\\s*\\}\\})",
-          "captures": {
-            "1": {
-              "name": "markup.inline.raw.string.markdown"
-            },
-            "2": {
-              "name": "keyword.control.mdcl"
-            },
-            "3": {
-              "name": "entity.name.function.mdcl"
-            },
-            "4": {
-              "name": "string.quoted.single.mdcl"
-            },
-            "5": {
-              "name": "keyword.other.mdcl"
-            }
-          }
+          "include": "source.shell"
         }
       ]
+    },
+    "mdcl-command-inline": {
+      "name": "meta.mdcl.command.inline",
+      "match": "(`[^`]+`)\\s*(\\{\\{\\s*(execute|copy|open)(\\s+'[^']+')?(\\s+interrupt)?\\s*\\}\\})",
+      "captures": {
+        "1": { "name": "markup.inline.raw.string.markdown" },
+        "2": { "name": "keyword.control.mdcl" },
+        "3": { "name": "entity.name.function.mdcl" },
+        "4": { "name": "string.quoted.single.mdcl" },
+        "5": { "name": "keyword.other.mdcl" }
+      }
+    },
+    "fenced-code-block": {
+      "patterns": [
+        {
+          "include": "#fenced-code-block-bash"
+        },
+        {
+          "include": "#fenced-code-block-python"
+        },
+        {
+          "include": "#fenced-code-block-javascript"
+        },
+        {
+          "include": "#fenced-code-block-typescript"
+        },
+        {
+          "include": "#fenced-code-block-json"
+        },
+        {
+          "include": "#fenced-code-block-yaml"
+        },
+        {
+          "include": "#fenced-code-block-unknown"
+        }
+      ]
+    },
+    "fenced-code-block-bash": {
+      "begin": "(^|\\G)(\\s*)(`{3,}|~{3,})\\s*(?i:(bash|sh|shell|zsh)((\\s+|:|\\{)[^`~]*)?$)",
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "name": "markup.fenced_code.block.markdown",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
+      "patterns": [
+        { "include": "source.shell" }
+      ]
+    },
+    "fenced-code-block-python": {
+      "begin": "(^|\\G)(\\s*)(`{3,}|~{3,})\\s*(?i:(python|py)((\\s+|:|\\{)[^`~]*)?$)",
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "name": "markup.fenced_code.block.markdown",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
+      "patterns": [
+        { "include": "source.python" }
+      ]
+    },
+    "fenced-code-block-javascript": {
+      "begin": "(^|\\G)(\\s*)(`{3,}|~{3,})\\s*(?i:(javascript|js)((\\s+|:|\\{)[^`~]*)?$)",
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "name": "markup.fenced_code.block.markdown",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
+      "patterns": [
+        { "include": "source.js" }
+      ]
+    },
+    "fenced-code-block-typescript": {
+      "begin": "(^|\\G)(\\s*)(`{3,}|~{3,})\\s*(?i:(typescript|ts)((\\s+|:|\\{)[^`~]*)?$)",
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "name": "markup.fenced_code.block.markdown",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
+      "patterns": [
+        { "include": "source.ts" }
+      ]
+    },
+    "fenced-code-block-json": {
+      "begin": "(^|\\G)(\\s*)(`{3,}|~{3,})\\s*(?i:(json)((\\s+|:|\\{)[^`~]*)?$)",
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "name": "markup.fenced_code.block.markdown",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
+      "patterns": [
+        { "include": "source.json" }
+      ]
+    },
+    "fenced-code-block-yaml": {
+      "begin": "(^|\\G)(\\s*)(`{3,}|~{3,})\\s*(?i:(yaml|yml)((\\s+|:|\\{)[^`~]*)?$)",
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "name": "markup.fenced_code.block.markdown",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
+      "patterns": [
+        { "include": "source.yaml" }
+      ]
+    },
+    "fenced-code-block-unknown": {
+      "begin": "(^|\\G)(\\s*)(`{3,}|~{3,})\\s*(?=([^`~]*)?$)",
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "name": "markup.fenced_code.block.markdown",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      }
     }
   },
   "scopeName": "text.mdcl"

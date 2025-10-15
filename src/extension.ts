@@ -3,11 +3,13 @@ import { CommandParser, MDCLCommand } from './commandParser';
 import { CommandExecutor } from './commandExecutor';
 import { MDCLCodeLensProvider } from './codeLensProvider';
 import { MDCLPreviewPanel } from './previewPanel';
+import { ChatPanel } from './chat/chatPanel';
+import { ChatViewProvider } from './chat/chatViewProvider';
 
 let commandExecutor: CommandExecutor;
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('🚀 CodeLab extension is now active!');
+    console.log('🚀 VSLabsAI extension is now active!');
     console.log('Extension context:', {
         extensionPath: context.extensionPath,
         globalState: !!context.globalState,
@@ -16,7 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
     console.log('VS Code version:', vscode.version);
 
     // Show activation message
-    vscode.window.showInformationMessage('CodeLab Extension Activated!');
+    vscode.window.showInformationMessage('VSLabsAI Extension Activated!');
 
     // Log all currently open documents
     vscode.workspace.textDocuments.forEach(doc => {
@@ -25,6 +27,16 @@ export function activate(context: vscode.ExtensionContext) {
 
     commandExecutor = new CommandExecutor(context);
     console.log('✅ CommandExecutor initialized');
+
+    // Register chat sidebar view
+    const chatViewProvider = new ChatViewProvider(context.extensionUri, context);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            ChatViewProvider.viewType,
+            chatViewProvider
+        )
+    );
+    console.log('✅ Chat sidebar view registered');
 
     const codeLensProvider = new MDCLCodeLensProvider();
     console.log('✅ MDCLCodeLensProvider created');
@@ -107,52 +119,59 @@ export function activate(context: vscode.ExtensionContext) {
     );
     context.subscriptions.push(refreshCodeLensCommand);
 
-    // Auto-open preview for MDCL files
+    // Add chat command
+    const openChatCommand = vscode.commands.registerCommand('mdcl.openChat', () => {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor && activeEditor.document.languageId === 'mdcl') {
+            ChatPanel.createOrShow(
+                context.extensionUri,
+                activeEditor.document
+            );
+        } else {
+            vscode.window.showInformationMessage('Please open an MDCL file to use chat.');
+        }
+    });
+    context.subscriptions.push(openChatCommand);
+
+    // Auto-open preview for MDCL files when they're first opened
     vscode.workspace.onDidOpenTextDocument(async (document) => {
         console.log('📄 Document opened:', document.uri.toString(), 'Language:', document.languageId);
 
         const config = vscode.workspace.getConfiguration('mdcl');
         const autoPreview = config.get<boolean>('autoOpenPreview', true);
-        console.log('⚙️ Auto preview setting:', autoPreview);
 
         if (autoPreview && document.languageId === 'mdcl' && !document.isUntitled) {
-            console.log('🔄 Scheduling auto-preview for MDCL file');
-            // Increased delay to ensure editor and code lenses are ready
+            // Small delay to let the editor become active
             setTimeout(() => {
-                const editor = vscode.window.visibleTextEditors.find(
-                    e => e.document.uri.toString() === document.uri.toString()
-                );
-                if (editor && !MDCLPreviewPanel.currentPanel) {
-                    console.log('🎭 Creating preview panel for MDCL file');
+                const editor = vscode.window.activeTextEditor;
+                // Only create preview if this document is now the active editor
+                // AND we don't already have a preview panel
+                if (editor &&
+                    editor.document.uri.toString() === document.uri.toString() &&
+                    !MDCLPreviewPanel.currentPanel) {
+                    console.log('🎭 Creating preview for newly opened MDCL file');
                     MDCLPreviewPanel.createOrShow(
                         context.extensionUri,
-                        document,
+                        editor.document,
                         commandExecutor
                     );
-                } else {
-                    console.log('❌ Preview panel not created:', {
-                        editorFound: !!editor,
-                        panelExists: !!MDCLPreviewPanel.currentPanel
-                    });
                 }
-            }, 750); // Increased delay for VS Code 1.104.1
+            }, 100);
         }
     });
 
-    // Also handle when switching to an MDCL file that's already open
+    // Handle preview creation/update when switching to MDCL files
+    // This is the ONLY place where auto-preview happens to avoid duplicates
     vscode.window.onDidChangeActiveTextEditor((editor) => {
         console.log('👁️ Active editor changed:', editor ? editor.document.uri.toString() : 'none');
-        if (editor) {
-            console.log('📄 New active document language:', editor.document.languageId);
-        }
 
         if (editor && editor.document.languageId === 'mdcl') {
             const config = vscode.workspace.getConfiguration('mdcl');
             const autoPreview = config.get<boolean>('autoOpenPreview', true);
-            console.log('🔄 Switching to MDCL file, auto preview:', autoPreview);
+            console.log('🔄 MDCL file active, auto preview:', autoPreview);
 
-            if (autoPreview && !MDCLPreviewPanel.currentPanel) {
-                console.log('🎭 Creating preview panel for switched MDCL file');
+            if (autoPreview) {
+                console.log('🎭 Creating or updating preview panel');
                 MDCLPreviewPanel.createOrShow(
                     context.extensionUri,
                     editor.document,
@@ -194,6 +213,9 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
     if (MDCLPreviewPanel.currentPanel) {
         MDCLPreviewPanel.currentPanel.dispose();
+    }
+    if (ChatPanel.currentPanel) {
+        ChatPanel.currentPanel.dispose();
     }
     if (commandExecutor) {
         commandExecutor.dispose();
