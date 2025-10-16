@@ -12,3 +12,21 @@ node_modules/**
 !node_modules/marked/**
 .github/**
 *.vsix
+
+# Sensitive configuration (contains API keys)
+.codelab/
+.claude/
+
+# Internal documentation (not for public)
+internal-docs/
+
+# Test files
+test/
+
+# Planning documents
+THINKING-PLAN.md
+
+# Old/backup icon files
+icons/*.old
+icons/*.older
+icons/*.meh

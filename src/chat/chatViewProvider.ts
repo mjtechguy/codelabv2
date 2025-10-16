@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { encode } from 'gpt-tokenizer';
 import { ConfigLoader } from './configLoader';
 import { LLMClient } from './llmClient';
@@ -10,6 +12,7 @@ import { ChatMessage, ChatSession, ChatConfig, ModelConfig, ContextItem } from '
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'vslabsai.chatView';
+    public static currentProvider: ChatViewProvider | undefined;
     private _view?: vscode.WebviewView;
     private _config: ChatConfig | null = null;
     private _llmClient: LLMClient | null = null;
@@ -25,8 +28,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly _extensionUri: vscode.Uri,
         private readonly _context: vscode.ExtensionContext
     ) {
+        ChatViewProvider.currentProvider = this;
         this._sessionManager = new SessionManager();
-        this._sessionManager.initialize(_context); // Initialize with context for persistence
+        // Note: initialization happens in initialize() method, called when webview is ready
 
         // Track ALL open documents, not just mdcl
         this.trackOpenDocuments();
@@ -78,17 +82,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
      * Update implicit context based on open files
      */
     private async updateImplicitContext(): Promise<void> {
-        const session = this._sessionManager.getActiveSession();
+        const session = await this._sessionManager.getActiveSession();
         if (!session) return;
 
         // Convert open documents to array
         const implicitUris = Array.from(this._openDocuments);
 
         // Update session with implicit context
-        this._sessionManager.updateImplicitContext(session.id, implicitUris);
+        await this._sessionManager.updateImplicitContext(session.id, implicitUris);
 
         // Update UI
-        this.updateContextDisplay();
+        await this.updateContextDisplay();
     }
 
     public resolveWebviewView(
@@ -155,6 +159,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'addFile':
                     await this.addFileToContext(data.uri);
                     break;
+                case 'addFiles':
+                    await this.addFilesToContext(data.uris);
+                    break;
+                case 'getWorkspaceFiles':
+                    await this.sendWorkspaceFiles();
+                    break;
                 case 'selectSymbols':
                     // TODO: Implement symbol selection
                     vscode.window.showInformationMessage('Symbol selection coming soon!');
@@ -167,7 +177,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
      * Add all open editors to context
      */
     private async addOpenEditorsToContext(): Promise<void> {
-        const session = this._sessionManager.getActiveSession();
+        const session = await this._sessionManager.getActiveSession();
         if (!session) return;
 
         const openDocs = Array.from(this._openDocuments);
@@ -178,46 +188,136 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // Add all open documents to explicit context
         const updatedUris = [...new Set([...session.contextUris, ...openDocs])];
-        this._sessionManager.updateSessionContext(session.id, updatedUris, 'custom');
+        await this._sessionManager.updateSessionContext(session.id, updatedUris, 'custom');
 
         await this.updateContextDisplay();
-        this.updateContextBadge();
+        await this.updateContextBadge();
     }
 
     /**
      * Add entire codebase to context
      */
     private async addCodebaseToContext(): Promise<void> {
-        const session = this._sessionManager.getActiveSession();
+        const session = await this._sessionManager.getActiveSession();
         if (!session) return;
 
         // Set context type to workspace
-        this._sessionManager.updateSessionContext(session.id, [], 'workspace');
+        await this._sessionManager.updateSessionContext(session.id, [], 'workspace');
 
         await this.updateContextDisplay();
-        this.updateContextBadge();
+        await this.updateContextBadge();
 
         vscode.window.showInformationMessage('Entire codebase added to context');
+    }
+
+    private async addFilesToContext(uris: string[]) {
+        const session = await this._sessionManager.getActiveSession();
+        if (!session) return;
+
+        // Add multiple files to context
+        const newUris = [...session.contextUris];
+        for (const uri of uris) {
+            if (!newUris.includes(uri)) {
+                newUris.push(uri);
+            }
+        }
+
+        await this._sessionManager.updateSessionContext(session.id, newUris, 'custom');
+        await this.updateContextBadge();
+        await this.updateContextDisplay();
+    }
+
+    private async sendWorkspaceFiles() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            this._view?.webview.postMessage({
+                type: 'workspaceFiles',
+                files: []
+            });
+            return;
+        }
+
+        const rootPath = workspaceFolders[0].uri.fsPath;
+        const fileTree = await this.buildFileTree(rootPath);
+
+        this._view?.webview.postMessage({
+            type: 'workspaceFiles',
+            files: fileTree
+        });
+    }
+
+    private async buildFileTree(dirPath: string, depth: number = 0): Promise<any[]> {
+        // Limit recursion depth to avoid performance issues
+        if (depth > 3) return [];
+
+        try {
+            const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
+            const files: any[] = [];
+
+            // Filter out common directories to ignore
+            const ignorePatterns = ['node_modules', '.git', 'dist', 'build', 'out', '.vscode', '.DS_Store'];
+
+            for (const item of items) {
+                if (ignorePatterns.some(pattern => item.name.includes(pattern))) {
+                    continue;
+                }
+
+                const fullPath = path.join(dirPath, item.name);
+                const uri = vscode.Uri.file(fullPath).toString();
+
+                if (item.isDirectory()) {
+                    const children = depth < 2 ? await this.buildFileTree(fullPath, depth + 1) : [];
+                    files.push({
+                        name: item.name,
+                        uri: uri,
+                        type: 'folder',
+                        children: children
+                    });
+                } else {
+                    files.push({
+                        name: item.name,
+                        uri: uri,
+                        type: 'file'
+                    });
+                }
+            }
+
+            // Sort: folders first, then files, both alphabetically
+            files.sort((a, b) => {
+                if (a.type === b.type) {
+                    return a.name.localeCompare(b.name);
+                }
+                return a.type === 'folder' ? -1 : 1;
+            });
+
+            return files;
+        } catch (error) {
+            console.error(`Error reading directory ${dirPath}:`, error);
+            return [];
+        }
     }
 
     /**
      * Add a specific file to context
      */
     private async addFileToContext(uri: string): Promise<void> {
-        const session = this._sessionManager.getActiveSession();
+        const session = await this._sessionManager.getActiveSession();
         if (!session || !uri) return;
 
         // Add file to explicit context if not already there
         if (!session.contextUris.includes(uri)) {
             const updatedUris = [...session.contextUris, uri];
-            this._sessionManager.updateSessionContext(session.id, updatedUris, 'custom');
+            await this._sessionManager.updateSessionContext(session.id, updatedUris, 'custom');
 
             await this.updateContextDisplay();
-            this.updateContextBadge();
+            await this.updateContextBadge();
         }
     }
 
     private async initialize() {
+        // Initialize session manager with context
+        await this._sessionManager.initialize(this._context);
+
         await this.loadConfig();
 
         // Always load a session, even without a document
@@ -267,6 +367,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    public async reloadConfig(): Promise<void> {
+        this._config = await ConfigLoader.loadConfig();
+
+        if (this._config) {
+            this._availableModels = ConfigLoader.getModels(this._config);
+            this._currentModel = ConfigLoader.getDefaultModel(this._config);
+
+            if (this._currentModel) {
+                this._llmClient = new LLMClient(this._currentModel);
+            }
+
+            // Send message to webview to update the model dropdown
+            this._view?.webview.postMessage({
+                type: 'modelsUpdated',
+                models: this._availableModels,
+                currentModel: this._currentModel
+            });
+        }
+    }
+
     private async switchModel(modelName: string) {
         const model = this._availableModels.find(m =>
             (m.name || m.model) === modelName
@@ -290,14 +410,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     private async loadSession() {
         // Get or create active session
-        let session = this._sessionManager.getActiveSession();
+        let session = await this._sessionManager.getActiveSession();
 
         if (!session) {
             // Create default session with empty explicit context
             // (implicit context from open files will be added separately)
             const contextUris: string[] = [];
             const name = 'Chat 1';
-            session = this._sessionManager.createSession(name, 'custom', contextUris);
+            session = await this._sessionManager.createSession(name, 'custom', contextUris);
         }
 
         // Combine explicit and implicit context URIs for initial load
@@ -331,13 +451,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         // Update UI
-        this.updateSessionsUI();
-        this.updateContextBadge();
+        await this.updateSessionsUI();
+        await this.updateContextBadge();
         await this.updateContextDisplay();  // Update context pills
+
+        // Send session data including messages to webview for restoration
+        const displayMessages = session.messages.filter(m => m.role !== 'system');
 
         this._view?.webview.postMessage({
             type: 'sessionLoaded',
-            filename: 'CODELAB: AI LEARNING ASSISTANT'
+            filename: 'CODELAB: AI LEARNING ASSISTANT',
+            messages: displayMessages  // Send message history for restoration
         });
     }
 
@@ -350,7 +474,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const session = this._sessionManager.getActiveSession();
+        const session = await this._sessionManager.getActiveSession();
         if (!session) {
             this._view?.webview.postMessage({
                 type: 'error',
@@ -407,7 +531,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         ];
 
         // Add user message to session
-        this._sessionManager.addMessage(session.id, userMessage);
+        await this._sessionManager.addMessage(session.id, userMessage);
 
         this._view?.webview.postMessage({
             type: 'userMessage',
@@ -450,7 +574,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 timestamp: Date.now()
             };
 
-            this._sessionManager.addMessage(session.id, assistantMessage);
+            await this._sessionManager.addMessage(session.id, assistantMessage);
 
             this._view?.webview.postMessage({
                 type: 'thinking',
@@ -506,9 +630,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async clearChat() {
-        const session = this._sessionManager.getActiveSession();
+        const session = await this._sessionManager.getActiveSession();
         if (session) {
-            this._sessionManager.clearSession(session.id);
+            await this._sessionManager.clearSession(session.id);
             await this.loadSession();
         }
         this._view?.webview.postMessage({
@@ -517,11 +641,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async openConfig() {
-        const configPath = ConfigLoader.getConfigPath();
-        if (configPath) {
-            const document = await vscode.workspace.openTextDocument(configPath);
-            await vscode.window.showTextDocument(document);
-        }
+        // Open the visual model configuration UI
+        vscode.commands.executeCommand('vslabsai.openModelConfig');
     }
 
     private async createNewSession() {
@@ -530,11 +651,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // Create session with current document as default context
         const contextUris = this._currentDocument ? [this._currentDocument.uri.toString()] : [];
-        const session = this._sessionManager.createSession(name, 'file', contextUris);
+        const session = await this._sessionManager.createSession(name, 'file', contextUris);
 
         // Update UI
-        this.updateSessionsUI();
-        this.updateContextBadge();
+        await this.updateSessionsUI();
+        await this.updateContextBadge();
 
         // Reload session
         await this.loadSession();
@@ -543,8 +664,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private async switchSession(sessionId?: string) {
         // If no sessionId provided, show picker
         if (!sessionId) {
-            const sessions = this._sessionManager.getAllSessions();
-            const activeSession = this._sessionManager.getActiveSession();
+            const sessions = await this._sessionManager.getAllSessions();
+            const activeSession = await this._sessionManager.getActiveSession();
 
             const items = sessions.map(s => ({
                 label: s.name,
@@ -564,14 +685,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             sessionId = selected.sessionId;
         }
 
-        const session = this._sessionManager.setActiveSession(sessionId);
+        const session = await this._sessionManager.setActiveSession(sessionId);
         if (!session) {
             return;
         }
 
         // Update UI
-        this.updateSessionsUI();
-        this.updateContextBadge();
+        await this.updateSessionsUI();
+        await this.updateContextBadge();
 
         // Send messages to webview
         this._view?.webview.postMessage({
@@ -604,13 +725,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             const contextType = hasFolder ? 'folder' : selected.length === 1 ? 'file' : 'custom';
 
             // Update active session context
-            const activeSession = this._sessionManager.getActiveSession();
+            const activeSession = await this._sessionManager.getActiveSession();
             if (activeSession) {
                 const uris = selected.map(item => item.description || '');
-                this._sessionManager.updateSessionContext(activeSession.id, uris, contextType);
+                await this._sessionManager.updateSessionContext(activeSession.id, uris, contextType);
 
                 // Update UI without reloading the entire session
-                this.updateContextBadge();
+                await this.updateContextBadge();
                 await this.updateContextDisplay();
             }
 
@@ -621,7 +742,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async renameSession(sessionId: string) {
-        const session = this._sessionManager.getAllSessions().find(s => s.id === sessionId);
+        const sessions = await this._sessionManager.getAllSessions();
+        const session = sessions.find(s => s.id === sessionId);
         if (!session) return;
 
         const newName = await vscode.window.showInputBox({
@@ -631,29 +753,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
 
         if (newName && newName.trim()) {
-            this._sessionManager.renameSession(sessionId, newName.trim());
-            this.updateSessionsUI();
+            await this._sessionManager.renameSession(sessionId, newName.trim());
+            await this.updateSessionsUI();
         }
     }
 
-    private renameSessionInline(sessionId: string, newName: string) {
+    private async renameSessionInline(sessionId: string, newName: string) {
         if (newName && newName.trim()) {
-            this._sessionManager.renameSession(sessionId, newName.trim());
-            this.updateSessionsUI();
+            await this._sessionManager.renameSession(sessionId, newName.trim());
+            await this.updateSessionsUI();
         }
     }
 
     private async deleteSession(sessionId: string) {
         // Don't delete if it's the only session
-        const sessions = this._sessionManager.getAllSessions();
+        const sessions = await this._sessionManager.getAllSessions();
         if (sessions.length <= 1) {
             vscode.window.showWarningMessage('Cannot delete the last chat session');
             return;
         }
 
-        const deleted = this._sessionManager.deleteSession(sessionId);
+        const deleted = await this._sessionManager.deleteSession(sessionId);
         if (deleted) {
-            this.updateSessionsUI();
+            await this.updateSessionsUI();
             await this.loadSession();
         }
     }
@@ -662,17 +784,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
      * Remove a context item from the session
      */
     private async removeContextItem(uri: string, isImplicit: boolean): Promise<void> {
-        const session = this._sessionManager.getActiveSession();
+        const session = await this._sessionManager.getActiveSession();
         if (!session) return;
 
         // Handle removing the entire codebase context
         if (uri === 'workspace://entire-codebase') {
-            this._sessionManager.updateSessionContext(
+            await this._sessionManager.updateSessionContext(
                 session.id,
                 [],
                 'custom'
             );
-            this.updateContextBadge();
+            await this.updateContextBadge();
             await this.updateContextDisplay();
             return;
         }
@@ -684,19 +806,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         } else {
             // For explicit context, remove from session's context URIs
             const newContextUris = session.contextUris.filter(u => u !== uri);
-            this._sessionManager.updateSessionContext(
+            await this._sessionManager.updateSessionContext(
                 session.id,
                 newContextUris,
                 newContextUris.length === 0 ? 'custom' : session.contextType
             );
-            this.updateContextBadge();
+            await this.updateContextBadge();
             await this.updateContextDisplay();
         }
     }
 
-    private updateSessionsUI() {
-        const sessions = this._sessionManager.getAllSessions();
-        const activeSession = this._sessionManager.getActiveSession();
+    private async updateSessionsUI() {
+        const sessions = await this._sessionManager.getAllSessions();
+        const activeSession = await this._sessionManager.getActiveSession();
 
         this._view?.webview.postMessage({
             type: 'sessionsUpdated',
@@ -709,8 +831,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private updateContextBadge() {
-        const activeSession = this._sessionManager.getActiveSession();
+    private async updateContextBadge() {
+        const activeSession = await this._sessionManager.getActiveSession();
         if (!activeSession) {
             return;
         }
@@ -752,7 +874,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
      * Update the context display with pills
      */
     private async updateContextDisplay(): Promise<void> {
-        const activeSession = this._sessionManager.getActiveSession();
+        const activeSession = await this._sessionManager.getActiveSession();
         if (!activeSession) {
             console.log('No active session for context display');
             return;
@@ -1855,6 +1977,161 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             margin-left: auto;
         }
 
+        /* File Browser View Styles */
+        .file-browser-view {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .file-browser-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+
+        .file-browser-back {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background-color 0.15s;
+        }
+
+        .file-browser-back:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .file-browser-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--vscode-foreground);
+        }
+
+        .file-browser-search {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+
+        .file-browser-search input {
+            width: 100%;
+            padding: 6px 10px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .file-browser-search input:focus {
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .file-browser-tree {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            min-height: 0;
+        }
+
+        .file-tree-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+            user-select: none;
+            transition: background-color 0.1s;
+        }
+
+        .file-tree-item:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .file-tree-item.selected {
+            background-color: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+
+        .file-tree-item .codicon {
+            flex-shrink: 0;
+        }
+
+        .file-tree-item.folder {
+            font-weight: 500;
+        }
+
+        .file-tree-item.folder > .codicon-chevron-right {
+            transition: transform 0.2s;
+        }
+
+        .file-tree-item.folder.expanded > .codicon-chevron-right {
+            transform: rotate(90deg);
+        }
+
+        .file-tree-children {
+            padding-left: 20px;
+            display: none;
+        }
+
+        .file-tree-children.expanded {
+            display: block;
+        }
+
+        .file-browser-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 12px 16px;
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+
+        .btn-primary, .btn-secondary {
+            padding: 6px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background-color 0.15s;
+        }
+
+        .btn-primary {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
+        .btn-primary:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+
+        .btn-secondary {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+
+        .btn-secondary:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .file-tree-checkbox {
+            width: 16px;
+            height: 16px;
+            margin-right: 4px;
+        }
+
         /* Bottom Controls Row - Below Input */
         .bottom-controls {
             display: flex;
@@ -2306,6 +2583,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     </div>
                     <div class="context-menu-section" id="recentFiles">
                         <!-- Recent files will be added here -->
+                    </div>
+                </div>
+                <div class="file-browser-view" id="fileBrowserView" style="display: none;">
+                    <div class="file-browser-header">
+                        <button class="file-browser-back" id="fileBrowserBack">
+                            <span class="codicon codicon-arrow-left"></span>
+                            Back
+                        </button>
+                        <div class="file-browser-title">Select Files & Folders</div>
+                    </div>
+                    <div class="file-browser-search">
+                        <input type="text" id="fileBrowserSearch" placeholder="Search files..." />
+                    </div>
+                    <div class="file-browser-tree" id="fileBrowserTree">
+                        <!-- File tree will be populated here -->
+                    </div>
+                    <div class="file-browser-footer">
+                        <button class="btn-secondary" id="fileBrowserCancel">Cancel</button>
+                        <button class="btn-primary" id="fileBrowserConfirm">Add Selected</button>
                     </div>
                 </div>
             </div>
@@ -2935,27 +3231,195 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
         }
 
+        let selectedFiles = new Set();
+
+        function showFileBrowser() {
+            const mainView = document.getElementById('contextMenu').querySelector('.context-menu-content');
+            const fileBrowserView = document.getElementById('fileBrowserView');
+            if (mainView) mainView.style.display = 'none';
+            if (fileBrowserView) fileBrowserView.style.display = 'flex';
+
+            // Request file tree from extension
+            vscode.postMessage({ type: 'getWorkspaceFiles' });
+        }
+
+        function hideFileBrowser() {
+            const mainView = document.getElementById('contextMenu').querySelector('.context-menu-content');
+            const fileBrowserView = document.getElementById('fileBrowserView');
+            if (mainView) mainView.style.display = 'block';
+            if (fileBrowserView) fileBrowserView.style.display = 'none';
+            selectedFiles.clear();
+        }
+
+        function renderFileTree(files) {
+            const tree = document.getElementById('fileBrowserTree');
+            if (!tree) return;
+
+            tree.innerHTML = '';
+
+            if (!files || files.length === 0) {
+                tree.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">No files found in workspace</div>';
+                return;
+            }
+
+            files.forEach(file => {
+                const item = createFileTreeItem(file, 0);
+                tree.appendChild(item);
+            });
+        }
+
+        function createFileTreeItem(file, level) {
+            const container = document.createElement('div');
+
+            const item = document.createElement('div');
+            item.className = 'file-tree-item';
+            item.style.paddingLeft = (level * 16 + 8) + 'px';
+
+            if (file.type === 'folder') {
+                item.classList.add('folder');
+
+                // Chevron for folders
+                const chevron = document.createElement('span');
+                chevron.className = 'codicon codicon-chevron-right';
+                item.appendChild(chevron);
+
+                // Folder icon
+                const icon = document.createElement('span');
+                icon.className = 'codicon codicon-folder';
+                item.appendChild(icon);
+
+                // Checkbox
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'file-tree-checkbox';
+                checkbox.dataset.uri = file.uri;
+                checkbox.dataset.type = 'folder';
+                item.appendChild(checkbox);
+
+                // Folder name
+                const name = document.createElement('span');
+                name.textContent = file.name;
+                item.appendChild(name);
+
+                // Toggle folder on click
+                item.addEventListener('click', (e) => {
+                    if (e.target === checkbox) return; // Don't toggle on checkbox click
+
+                    item.classList.toggle('expanded');
+                    const children = container.querySelector('.file-tree-children');
+                    if (children) {
+                        children.classList.toggle('expanded');
+                    }
+                });
+
+                // Handle checkbox
+                checkbox.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    if (checkbox.checked) {
+                        selectedFiles.add(file.uri);
+                        // Select all children
+                        const children = container.querySelectorAll('.file-tree-checkbox');
+                        children.forEach(child => {
+                            child.checked = true;
+                            selectedFiles.add(child.dataset.uri);
+                        });
+                    } else {
+                        selectedFiles.delete(file.uri);
+                        // Deselect all children
+                        const children = container.querySelectorAll('.file-tree-checkbox');
+                        children.forEach(child => {
+                            child.checked = false;
+                            selectedFiles.delete(child.dataset.uri);
+                        });
+                    }
+                    updateFileBrowserSelection();
+                });
+
+                container.appendChild(item);
+
+                // Add children
+                if (file.children && file.children.length > 0) {
+                    const childrenContainer = document.createElement('div');
+                    childrenContainer.className = 'file-tree-children';
+
+                    file.children.forEach(child => {
+                        const childItem = createFileTreeItem(child, level + 1);
+                        childrenContainer.appendChild(childItem);
+                    });
+
+                    container.appendChild(childrenContainer);
+                }
+            } else {
+                // File icon
+                const icon = document.createElement('span');
+                icon.className = 'codicon codicon-file';
+                item.appendChild(icon);
+
+                // Checkbox
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'file-tree-checkbox';
+                checkbox.dataset.uri = file.uri;
+                checkbox.dataset.type = 'file';
+                item.appendChild(checkbox);
+
+                // File name
+                const name = document.createElement('span');
+                name.textContent = file.name;
+                item.appendChild(name);
+
+                // Handle checkbox
+                checkbox.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    if (checkbox.checked) {
+                        selectedFiles.add(file.uri);
+                    } else {
+                        selectedFiles.delete(file.uri);
+                    }
+                    updateFileBrowserSelection();
+                });
+
+                container.appendChild(item);
+            }
+
+            return container;
+        }
+
+        function updateFileBrowserSelection() {
+            const confirmBtn = document.getElementById('fileBrowserConfirm');
+            if (confirmBtn) {
+                confirmBtn.textContent = selectedFiles.size > 0
+                    ? 'Add Selected (' + selectedFiles.size + ')'
+                    : 'Add Selected';
+                confirmBtn.disabled = selectedFiles.size === 0;
+            }
+        }
+
         function handleContextMenuSelection(type) {
             switch(type) {
                 case 'open-editors':
                     vscode.postMessage({ type: 'addOpenEditors' });
+                    hideContextMenu();
                     break;
                 case 'files':
-                    vscode.postMessage({ type: 'selectContext' });
+                    showFileBrowser();
+                    // Don't hide context menu, just switch views
                     break;
                 case 'codebase':
                     vscode.postMessage({ type: 'addCodebase' });
+                    hideContextMenu();
                     break;
                 case 'symbols':
                     vscode.postMessage({ type: 'selectSymbols' });
+                    hideContextMenu();
                     break;
                 default:
                     if (type && type.startsWith('file:')) {
                         const uri = type.substring(5);
                         vscode.postMessage({ type: 'addFile', uri });
                     }
+                    hideContextMenu();
             }
-            hideContextMenu();
         }
 
         function updateRecentFiles() {
@@ -3036,6 +3500,52 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 modelName: e.target.value
             });
         });
+
+        // File browser event listeners
+        const fileBrowserBack = document.getElementById('fileBrowserBack');
+        const fileBrowserCancel = document.getElementById('fileBrowserCancel');
+        const fileBrowserConfirm = document.getElementById('fileBrowserConfirm');
+        const fileBrowserSearch = document.getElementById('fileBrowserSearch');
+
+        if (fileBrowserBack) {
+            fileBrowserBack.addEventListener('click', hideFileBrowser);
+        }
+
+        if (fileBrowserCancel) {
+            fileBrowserCancel.addEventListener('click', () => {
+                hideFileBrowser();
+                hideContextMenu();
+            });
+        }
+
+        if (fileBrowserConfirm) {
+            fileBrowserConfirm.addEventListener('click', () => {
+                if (selectedFiles.size > 0) {
+                    vscode.postMessage({
+                        type: 'addFiles',
+                        uris: Array.from(selectedFiles)
+                    });
+                    hideFileBrowser();
+                    hideContextMenu();
+                }
+            });
+        }
+
+        if (fileBrowserSearch) {
+            fileBrowserSearch.addEventListener('input', (e) => {
+                const searchTerm = e.target.value.toLowerCase();
+                const items = document.querySelectorAll('.file-tree-item');
+                items.forEach(item => {
+                    const text = item.textContent.toLowerCase();
+                    const container = item.parentElement;
+                    if (text.includes(searchTerm)) {
+                        container.style.display = 'block';
+                    } else {
+                        container.style.display = 'none';
+                    }
+                });
+            });
+        }
 
 
         function sendMessage() {
@@ -3200,6 +3710,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         headerText.textContent = message.filename;
                     }
                     showWelcome();
+                    // Restore message history from session
+                    if (message.messages && message.messages.length > 0) {
+                        message.messages.forEach(msg => {
+                            if (msg.role !== 'system') {
+                                addMessage(msg.role, msg.content);
+                            }
+                        });
+                    }
                     break;
 
                 case 'userMessage':
@@ -3351,6 +3869,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     }
                     break;
 
+                case 'modelsUpdated':
+                    // Config was reloaded - update model dropdown
+                    if (message.models && message.models.length > 1) {
+                        modelSelector.classList.remove('hidden');
+                        modelSelect.innerHTML = message.models.map(m =>
+                            \`<option value="\${m.name}" \${m.name === (message.currentModel?.name || message.models[0].name) ? 'selected' : ''}>\${m.name}</option>\`
+                        ).join('');
+                        currentModelName = message.currentModel?.name || message.models[0].name;
+                        currentModelConfig = message.currentModel || message.models[0];
+                    } else if (message.models && message.models.length === 1) {
+                        modelSelector.classList.add('hidden');
+                        currentModelName = message.models[0]?.name || 'Model';
+                        currentModelConfig = message.models[0] || null;
+                    }
+                    break;
+
                 case 'contextUpdated':
                     // Don't show any text for context badge, just update hasContext flag
                     hasContext = message.contextText && message.contextText !== '';
@@ -3375,6 +3909,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                             }
                         });
                     }
+                    break;
+
+                case 'workspaceFiles':
+                    renderFileTree(message.files);
                     break;
             }
         });

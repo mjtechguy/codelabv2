@@ -14,6 +14,10 @@ export interface ModelConfig {
     temperature?: number;
     maxTokens?: number;
     systemPrompt?: string;
+    thinking?: {
+        enabled: boolean;  // Enable thinking/reasoning mode
+        budget?: number;   // Token budget for thinking (provider-specific)
+    };
     pricing?: {
         inputCost: number;   // Cost per 1M input tokens in USD
         outputCost: number;  // Cost per 1M output tokens in USD
@@ -34,6 +38,20 @@ export interface ChatSession {
     implicitContextUris?: string[];  // Array of automatically tracked open files
     messages: ChatMessage[];
     createdAt: number;
+    lastUpdated?: number;  // Timestamp of last modification
+    version?: number;  // Schema version for future migrations (default: 1)
+}
+
+/**
+ * Lightweight session metadata for index storage
+ * Stored in globalState for fast lookup without loading full session
+ */
+export interface SessionMetadata {
+    id: string;
+    name: string;
+    createdAt: number;
+    lastUpdated: number;
+    messageCount: number;  // For sorting/display
 }
 
 export interface ContextItem {
@@ -96,6 +114,8 @@ export interface LLMStreamChunk {
         delta: {
             role?: string;
             content?: string;
+            reasoning_content?: string;  // DeepSeek reasoning tokens
+            type?: string;  // Anthropic content type
         };
         finish_reason: string | null;
     }>;

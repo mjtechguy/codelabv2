@@ -5,6 +5,7 @@ import { MDCLCodeLensProvider } from './codeLensProvider';
 import { MDCLPreviewPanel } from './previewPanel';
 import { ChatPanel } from './chat/chatPanel';
 import { ChatViewProvider } from './chat/chatViewProvider';
+import { ModelConfigPanel } from './chat/modelConfigPanel';
 
 let commandExecutor: CommandExecutor;
 
@@ -175,6 +176,21 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
     context.subscriptions.push(toggleUserModeCommand);
+
+    // Add model configuration command
+    const openModelConfigCommand = vscode.commands.registerCommand('vslabsai.openModelConfig', () => {
+        ModelConfigPanel.createOrShow(context.extensionUri);
+    });
+    context.subscriptions.push(openModelConfigCommand);
+
+    // Add reload config command (triggered after config save)
+    const reloadConfigCommand = vscode.commands.registerCommand('vslabsai.reloadConfig', () => {
+        // Notify ChatViewProvider to reload
+        if (ChatViewProvider.currentProvider) {
+            ChatViewProvider.currentProvider.reloadConfig();
+        }
+    });
+    context.subscriptions.push(reloadConfigCommand);
 
     // Auto-open preview for MDCL files when they're first opened
     vscode.workspace.onDidOpenTextDocument(async (document) => {
