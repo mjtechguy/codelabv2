@@ -43,7 +43,6 @@ export class AnswerKeyLoader {
 
                     if (answerKey) {
                         this.answerKeys.set(cacheKey, answerKey);
-                        console.log(`Loaded answer key from: ${answerPath}`);
                         return answerKey;
                     }
                 } catch (error) {
@@ -52,7 +51,6 @@ export class AnswerKeyLoader {
             }
         }
 
-        console.log(`No answer key found for: ${mdclPath}${customName ? ` (custom: ${customName})` : ''}`);
         return null;
     }
 

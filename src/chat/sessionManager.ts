@@ -25,8 +25,6 @@ export class SessionManager {
 
         // Migrate legacy sessions if needed
         await this.migrateLegacySessions();
-
-        console.log(`✅ SessionManager initialized with ${this.sessionIndex.size} sessions`);
     }
 
     /**
@@ -77,8 +75,6 @@ export class SessionManager {
             return; // No legacy sessions to migrate
         }
 
-        console.log(`🔄 Migrating ${legacySessions.length} legacy sessions to file-based storage...`);
-
         let migrated = 0;
         for (const session of legacySessions) {
             try {
@@ -116,7 +112,6 @@ export class SessionManager {
             // Clear legacy storage
             await this.context.globalState.update(SessionManager.LEGACY_SESSIONS_KEY, undefined);
 
-            console.log(`✅ Successfully migrated ${migrated} sessions`);
             vscode.window.showInformationMessage(`Migrated ${migrated} chat sessions to improved storage`);
         }
     }

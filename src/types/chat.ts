@@ -63,6 +63,29 @@ export interface ContextItem {
     icon?: string;  // Icon identifier for the context item
 }
 
+/**
+ * File tree item for file browser
+ */
+export interface FileTreeItem {
+    name: string;
+    uri: string;
+    type: 'file' | 'folder';
+    children?: FileTreeItem[];
+}
+
+/**
+ * Extended LLM request for thinking models
+ */
+export interface ExtendedLLMRequest extends LLMRequest {
+    max_completion_tokens?: number;
+    thinking_budget?: number;
+    thinking?: {
+        type: string;
+        budget_tokens: number;
+    };
+    thinkingBudget?: number;
+}
+
 export interface TutorialContext {
     fullContent: string;
     sections: TutorialSection[];

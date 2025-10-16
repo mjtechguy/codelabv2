@@ -10,14 +10,6 @@ import { ModelConfigPanel } from './chat/modelConfigPanel';
 let commandExecutor: CommandExecutor;
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('🚀 VSLabsAI extension is now active!');
-    console.log('Extension context:', {
-        extensionPath: context.extensionPath,
-        globalState: !!context.globalState,
-        workspaceState: !!context.workspaceState
-    });
-    console.log('VS Code version:', vscode.version);
-
     // Check if this is first time activation or if user mode is not set
     const config = vscode.workspace.getConfiguration('mdcl');
     const hasSeenModePrompt = context.globalState.get<boolean>('hasSeenModePrompt', false);
@@ -46,13 +38,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(`VSLabsAI: ${modeLabel} Mode active`);
     }
 
-    // Log all currently open documents
-    vscode.workspace.textDocuments.forEach(doc => {
-        console.log('📄 Open document:', doc.uri.toString(), 'Language:', doc.languageId);
-    });
-
     commandExecutor = new CommandExecutor(context);
-    console.log('✅ CommandExecutor initialized');
 
     // Register chat sidebar view
     const chatViewProvider = new ChatViewProvider(context.extensionUri, context);
@@ -62,23 +48,19 @@ export async function activate(context: vscode.ExtensionContext) {
             chatViewProvider
         )
     );
-    console.log('✅ Chat sidebar view registered');
 
     const codeLensProvider = new MDCLCodeLensProvider();
-    console.log('✅ MDCLCodeLensProvider created');
 
     const codeLensDisposable = vscode.languages.registerCodeLensProvider(
         { language: 'mdcl', scheme: 'file' },
         codeLensProvider
     );
     context.subscriptions.push(codeLensDisposable);
-    console.log('✅ CodeLens provider registered for mdcl language');
 
     // Force refresh code lenses for any already open MDCL files
     setTimeout(() => {
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor && activeEditor.document.languageId === 'mdcl') {
-            console.log('🔄 Forcing code lens refresh for active MDCL file');
             codeLensProvider.refresh();
         }
     }, 100);
@@ -139,7 +121,6 @@ export async function activate(context: vscode.ExtensionContext) {
     const refreshCodeLensCommand = vscode.commands.registerCommand(
         'mdcl.refreshCodeLens',
         () => {
-            console.log('🔄 Manual code lens refresh triggered');
             codeLensProvider.refresh();
         }
     );
@@ -194,8 +175,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Auto-open preview for MDCL files when they're first opened
     vscode.workspace.onDidOpenTextDocument(async (document) => {
-        console.log('📄 Document opened:', document.uri.toString(), 'Language:', document.languageId);
-
         const config = vscode.workspace.getConfiguration('mdcl');
         const autoPreview = config.get<boolean>('autoOpenPreview', true);
         const userMode = config.get<string>('userMode', 'student');
@@ -209,8 +188,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (editor &&
                     editor.document.uri.toString() === document.uri.toString() &&
                     !MDCLPreviewPanel.currentPanel) {
-                    console.log('🎭 Creating preview for newly opened MDCL file');
-
                     if (userMode === 'student') {
                         // Student mode: Show preview only and hide source
                         // Store the document URI before creating preview
@@ -246,19 +223,15 @@ export async function activate(context: vscode.ExtensionContext) {
     // Handle preview creation/update when switching to MDCL files
     // This is the ONLY place where auto-preview happens to avoid duplicates
     vscode.window.onDidChangeActiveTextEditor(async (editor) => {
-        console.log('👁️ Active editor changed:', editor ? editor.document.uri.toString() : 'none');
-
         if (editor && editor.document.languageId === 'mdcl') {
             const config = vscode.workspace.getConfiguration('mdcl');
             const autoPreview = config.get<boolean>('autoOpenPreview', true);
             const userMode = config.get<string>('userMode', 'student');
-            console.log('🔄 MDCL file active, auto preview:', autoPreview, 'mode:', userMode);
 
             if (autoPreview) {
                 if (userMode === 'student' && !MDCLPreviewPanel.currentPanel) {
                     // Student mode: Create preview and close source
                     // Only do this if preview doesn't exist yet
-                    console.log('🎭 Creating preview panel (student mode)');
                     const documentUri = editor.document.uri;
 
                     MDCLPreviewPanel.createOrShow(
@@ -279,7 +252,6 @@ export async function activate(context: vscode.ExtensionContext) {
                     }, 300);
                 } else {
                     // Creator mode: Show both
-                    console.log('🎭 Creating or updating preview panel (creator mode)');
                     MDCLPreviewPanel.createOrShow(
                         context.extensionUri,
                         editor.document,
@@ -293,7 +265,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // Add text document change listener for code lens refresh
     vscode.workspace.onDidChangeTextDocument((event) => {
         if (event.document.languageId === 'mdcl') {
-            console.log('📝 MDCL document changed, refreshing code lenses');
             codeLensProvider.refresh();
         }
     });

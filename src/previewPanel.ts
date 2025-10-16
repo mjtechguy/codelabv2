@@ -233,8 +233,8 @@ export class MDCLPreviewPanel {
             .then(key => {
                 this.currentAnswerKey = key;
             })
-            .catch(err => {
-                console.log('Failed to load answer key:', err);
+            .catch(() => {
+                // Silently fail - answer key is optional
             });
 
         this._panel.webview.html = this.getHtmlContent(this._panel.webview);

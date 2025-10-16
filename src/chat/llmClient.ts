@@ -1,4 +1,4 @@
-import { ModelConfig, LLMRequest, LLMResponse, LLMStreamChunk, ChatMessage } from '../types/chat';
+import { ModelConfig, LLMRequest, LLMResponse, LLMStreamChunk, ChatMessage, ExtendedLLMRequest } from '../types/chat';
 
 export class LLMClient {
     private config: ModelConfig;
@@ -61,7 +61,7 @@ export class LLMClient {
         const isOpenAIReasoning = this.isOpenAIReasoningModel(this.config.model);
         const thinkingEnabled = this.isThinkingEnabled();
 
-        const requestBody: LLMRequest = {
+        const requestBody: ExtendedLLMRequest = {
             model: this.config.model,
             messages: messages.map(msg => ({
                 role: msg.role,
@@ -74,7 +74,7 @@ export class LLMClient {
         // Provider-specific parameter handling
         if (isOpenAIReasoning) {
             // OpenAI reasoning models use max_completion_tokens
-            (requestBody as any).max_completion_tokens = this.config.maxTokens ?? 2000;
+            requestBody.max_completion_tokens = this.config.maxTokens ?? 2000;
             // OpenAI reasoning models only support temperature = 1
             // Override user config - force temperature to 1
             requestBody.temperature = 1;
@@ -92,13 +92,13 @@ export class LLMClient {
                 case 'deepseek':
                     // DeepSeek uses thinking_budget parameter
                     if (budget) {
-                        (requestBody as any).thinking_budget = budget;
+                        requestBody.thinking_budget = budget;
                     }
                     break;
 
                 case 'anthropic':
                     // Anthropic uses thinking object with type and budget_tokens
-                    (requestBody as any).thinking = {
+                    requestBody.thinking = {
                         type: 'enabled',
                         budget_tokens: Math.max(1024, budget ?? 1024) // Min 1024 tokens
                     };
@@ -108,7 +108,7 @@ export class LLMClient {
                 case 'gemini':
                     // Gemini uses thinkingBudget parameter
                     // -1 = dynamic, or specific token count
-                    (requestBody as any).thinkingBudget = budget ?? -1;
+                    requestBody.thinkingBudget = budget ?? -1;
                     break;
 
                 // OpenAI reasoning models don't need extra params - automatic

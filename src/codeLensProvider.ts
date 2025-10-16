@@ -8,18 +8,15 @@ export class MDCLCodeLensProvider implements vscode.CodeLensProvider {
 
     constructor() {
         this.parser = new CommandParser();
-        console.log('⚙️ MDCLCodeLensProvider constructor called');
 
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('mdcl.enableCodeLens')) {
-                console.log('🔄 CodeLens configuration changed, refreshing...');
                 this._onDidChangeCodeLenses.fire();
             }
         });
     }
 
     public refresh(): void {
-        console.log('🔄 Manually refreshing code lenses');
         this._onDidChangeCodeLenses.fire();
     }
 
@@ -27,28 +24,13 @@ export class MDCLCodeLensProvider implements vscode.CodeLensProvider {
         document: vscode.TextDocument,
         token: vscode.CancellationToken
     ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
-        console.log('🔍 Providing code lenses for document:', document.uri.toString());
-
         const enabled = vscode.workspace.getConfiguration('mdcl').get<boolean>('enableCodeLens', true);
-        console.log('⚙️ CodeLens enabled:', enabled);
         if (!enabled) {
-            console.log('❌ CodeLens disabled, returning empty array');
             return [];
         }
 
         const documentText = document.getText();
-        console.log('📄 Document text length:', documentText.length);
-        console.log('📄 First 200 chars:', documentText.substring(0, 200));
-
         const commands = this.parser.parseDocument(documentText);
-        console.log('🚀 Parsed commands:', commands.length);
-        console.log('🚀 Commands details:', commands.map(cmd => ({
-            line: cmd.line,
-            action: cmd.action,
-            command: cmd.command,
-            terminal: cmd.terminal,
-            interrupt: cmd.interrupt
-        })));
 
         const codeLenses: vscode.CodeLens[] = [];
 
@@ -66,14 +48,8 @@ export class MDCLCodeLensProvider implements vscode.CodeLensProvider {
             };
 
             codeLenses.push(new vscode.CodeLens(range, codeLensCommand));
-            console.log('✨ Created code lens:', {
-                title,
-                range: `${command.line}:${command.startIndex}-${command.endIndex}`,
-                command: this.getVSCodeCommand(command)
-            });
         }
 
-        console.log('✅ Returning', codeLenses.length, 'code lenses');
         return codeLenses;
     }
 

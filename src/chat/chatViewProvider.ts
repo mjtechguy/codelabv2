@@ -8,7 +8,7 @@ import { TutorialContextExtractor } from './tutorialContext';
 import { ContextManager } from './contextManager';
 import { SessionManager } from './sessionManager';
 import { SmartContextManager } from './smartContextManager';
-import { ChatMessage, ChatSession, ChatConfig, ModelConfig, ContextItem } from '../types/chat';
+import { ChatMessage, ChatSession, ChatConfig, ModelConfig, ContextItem, FileTreeItem } from '../types/chat';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'vslabsai.chatView';
@@ -72,10 +72,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             // Skip untitled documents and output channels
             if (doc.uri.scheme === 'file') {
                 this._openDocuments.add(doc.uri.toString());
-                console.log('Tracking open document:', doc.fileName);
             }
         });
-        console.log('Total open documents tracked:', this._openDocuments.size);
     }
 
     /**
@@ -140,6 +138,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'deleteSession':
                     await this.deleteSession(data.sessionId);
+                    break;
+                case 'clearAllSessions':
+                    await this.clearAllSessions();
                     break;
                 case 'renameSession':
                     await this.renameSession(data.sessionId);
@@ -214,11 +215,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const session = await this._sessionManager.getActiveSession();
         if (!session) return;
 
-        // Add multiple files to context
+        // Add multiple files to context, validating each one
         const newUris = [...session.contextUris];
         for (const uri of uris) {
-            if (!newUris.includes(uri)) {
-                newUris.push(uri);
+            // Skip empty or invalid URIs
+            if (!uri || uri.trim() === '') {
+                continue;
+            }
+
+            // Validate URI before adding
+            try {
+                const parsedUri = vscode.Uri.parse(uri);
+                if (!parsedUri.fsPath || parsedUri.fsPath === '') {
+                    console.error(`Invalid file URI: ${uri}`);
+                    continue;
+                }
+
+                if (!newUris.includes(uri)) {
+                    newUris.push(uri);
+                }
+            } catch (error) {
+                console.error(`Failed to parse URI: ${uri}`, error);
+                continue;
             }
         }
 
@@ -246,13 +264,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private async buildFileTree(dirPath: string, depth: number = 0): Promise<any[]> {
+    private async buildFileTree(dirPath: string, depth: number = 0): Promise<FileTreeItem[]> {
         // Limit recursion depth to avoid performance issues
         if (depth > 3) return [];
 
         try {
             const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
-            const files: any[] = [];
+            const files: FileTreeItem[] = [];
 
             // Filter out common directories to ignore
             const ignorePatterns = ['node_modules', '.git', 'dist', 'build', 'out', '.vscode', '.DS_Store'];
@@ -302,7 +320,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
      */
     private async addFileToContext(uri: string): Promise<void> {
         const session = await this._sessionManager.getActiveSession();
-        if (!session || !uri) return;
+        if (!session || !uri || uri.trim() === '') return;
+
+        // Validate URI before adding
+        try {
+            const parsedUri = vscode.Uri.parse(uri);
+            if (!parsedUri.fsPath || parsedUri.fsPath === '') {
+                console.error(`Invalid file URI: ${uri}`);
+                return;
+            }
+        } catch (error) {
+            console.error(`Failed to parse URI: ${uri}`, error);
+            return;
+        }
 
         // Add file to explicit context if not already there
         if (!session.contextUris.includes(uri)) {
@@ -766,17 +796,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async deleteSession(sessionId: string) {
-        // Don't delete if it's the only session
-        const sessions = await this._sessionManager.getAllSessions();
-        if (sessions.length <= 1) {
-            vscode.window.showWarningMessage('Cannot delete the last chat session');
-            return;
-        }
-
         const deleted = await this._sessionManager.deleteSession(sessionId);
         if (deleted) {
-            await this.updateSessionsUI();
-            await this.loadSession();
+            // Check if there are any sessions left
+            const sessions = await this._sessionManager.getAllSessions();
+
+            if (sessions.length === 0) {
+                // Create a new default session if all were deleted
+                await this.createNewSession();
+            } else {
+                // Just update UI and load the active session
+                await this.updateSessionsUI();
+                await this.loadSession();
+            }
+        }
+    }
+
+    private async clearAllSessions() {
+        const answer = await vscode.window.showWarningMessage(
+            'Delete all chat sessions? This action cannot be undone.',
+            { modal: true },
+            'Delete All'
+        );
+
+        if (answer === 'Delete All') {
+            // Delete all sessions
+            const sessions = await this._sessionManager.getAllSessions();
+            for (const session of sessions) {
+                await this._sessionManager.deleteSession(session.id);
+            }
+
+            // Create a fresh default session
+            await this.createNewSession();
+
+            vscode.window.showInformationMessage('All chat sessions have been cleared');
         }
     }
 
@@ -876,11 +929,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private async updateContextDisplay(): Promise<void> {
         const activeSession = await this._sessionManager.getActiveSession();
         if (!activeSession) {
-            console.log('No active session for context display');
             return;
         }
-
-        console.log('Updating context display - explicit:', activeSession.contextUris.length, 'implicit:', activeSession.implicitContextUris?.length || 0);
 
         const contextItems: ContextItem[] = [];
 
@@ -897,36 +947,84 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // Add explicit context items
         for (const uriStr of activeSession.contextUris) {
-            const uri = vscode.Uri.parse(uriStr);
-            const name = uri.fsPath.split('/').pop() || 'Unknown';
-            const ext = name.split('.').pop()?.toLowerCase() || '';
+            // Skip empty or invalid URIs
+            if (!uriStr || uriStr.trim() === '') {
+                continue;
+            }
 
-            contextItems.push({
-                type: 'file',
-                uri: uriStr,
-                name,
-                icon: this.getFileIcon(ext),
-                isImplicit: false
-            });
-        }
-
-        // Add implicit context items (open files)
-        if (activeSession.implicitContextUris) {
-            for (const uriStr of activeSession.implicitContextUris) {
-                // Skip if already in explicit context
-                if (activeSession.contextUris.includes(uriStr)) continue;
-
+            try {
                 const uri = vscode.Uri.parse(uriStr);
-                const name = uri.fsPath.split('/').pop() || 'Unknown';
-                const ext = name.split('.').pop()?.toLowerCase() || '';
+                // Use path.basename for cross-platform compatibility
+                let name = path.basename(uri.fsPath);
+
+                // If basename returns empty, try to get more context
+                if (!name || name === '') {
+                    // Try to get the last two path segments for better context
+                    const segments = uri.fsPath.split(path.sep).filter(s => s);
+                    if (segments.length > 1) {
+                        name = segments.slice(-2).join('/');
+                    } else if (segments.length === 1) {
+                        name = segments[0];
+                    } else {
+                        // Skip this invalid entry
+                        continue;
+                    }
+                }
+
+                // Skip displaying "input" as a context pill - it's likely a special context
+                // that shouldn't be shown in the UI
+                if (name === 'input') {
+                    continue;
+                }
+
+                const ext = path.extname(name).slice(1).toLowerCase() || '';
 
                 contextItems.push({
                     type: 'file',
                     uri: uriStr,
                     name,
                     icon: this.getFileIcon(ext),
-                    isImplicit: true
+                    isImplicit: false
                 });
+            } catch (error) {
+                // Skip invalid URIs
+                console.error(`Invalid URI in context: ${uriStr}`, error);
+                continue;
+            }
+        }
+
+        // Add implicit context items (open files)
+        if (activeSession.implicitContextUris) {
+            for (const uriStr of activeSession.implicitContextUris) {
+                // Skip if already in explicit context or invalid
+                if (activeSession.contextUris.includes(uriStr) || !uriStr || uriStr.trim() === '') {
+                    continue;
+                }
+
+                try {
+                    const uri = vscode.Uri.parse(uriStr);
+                    // Use path.basename for cross-platform compatibility
+                    const name = path.basename(uri.fsPath);
+
+                    // Skip if no valid name
+                    if (!name || name === '') {
+                        continue;
+                    }
+
+                    const ext = path.extname(name).slice(1).toLowerCase() || '';
+
+                    contextItems.push({
+                        type: 'file',
+                        uri: uriStr,
+                        name,
+                        icon: this.getFileIcon(ext),
+                        isImplicit: true
+                    });
+                } catch (error) {
+                    // Skip invalid URIs
+                    console.error(`Invalid implicit URI in context: ${uriStr}`, error);
+                    continue;
+                }
             }
         }
 
@@ -935,6 +1033,71 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             type: 'contextItemsUpdated',
             contextItems
         });
+    }
+
+    /**
+     * Load local library script content
+     */
+    private getLocalLibraryScript(libName: string): string {
+        try {
+            if (libName === 'marked') {
+                // Use the minified version of marked
+                const extensionPath = this._extensionUri.fsPath;
+                const scriptPath = path.join(extensionPath, 'node_modules', 'marked', 'marked.min.js');
+                if (fs.existsSync(scriptPath)) {
+                    return fs.readFileSync(scriptPath, 'utf8');
+                }
+            } else if (libName === 'highlight.js') {
+                // Since highlight.js npm package doesn't include browser build,
+                // we'll provide a minimal fallback for offline use
+                return this.getHighlightJsFallback();
+            }
+            return '';
+        } catch (error) {
+            console.error(`Error loading local library ${libName}:`, error);
+            return '';
+        }
+    }
+
+    /**
+     * Provide a minimal highlight.js fallback for offline use
+     */
+    private getHighlightJsFallback(): string {
+        // This provides basic syntax highlighting functionality
+        // without external dependencies for offline use
+        return `
+            // Minimal highlight.js fallback for offline use
+            window.hljs = {
+                highlightElement: function(element) {
+                    // Basic syntax highlighting - just escape HTML
+                    if (element.textContent) {
+                        // Keep the content as-is but ensure it's properly escaped
+                        element.innerHTML = element.textContent
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;');
+                    }
+                },
+                highlightAll: function() {
+                    document.querySelectorAll('pre code').forEach(function(element) {
+                        window.hljs.highlightElement(element);
+                    });
+                },
+                getLanguage: function(lang) {
+                    // Return true for any language to enable basic highlighting
+                    return true;
+                },
+                highlight: function(code, lang) {
+                    // Basic HTML escaping
+                    return {
+                        value: code
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                    };
+                }
+            };
+        `;
     }
 
     /**
@@ -1000,9 +1163,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         .codicon {
-            font-family: 'codicon';
-            font-weight: normal;
-            font-style: normal;
+            font-family: 'codicon' !important;
+            font-weight: normal !important;
+            font-style: normal !important;
             display: inline-block;
             text-decoration: none;
             text-rendering: auto;
@@ -1014,30 +1177,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             line-height: 1;
         }
 
-        /* Icon codes */
-        .codicon-file:before { content: '\\eac8' }
+        /* Icon codes - synced with @vscode/codicons v0.0.41 */
+        .codicon-file:before { content: '\\ea7b' }
         .codicon-folder:before { content: '\\ea83' }
         .codicon-symbol-class:before { content: '\\eb5b' }
-        .codicon-code:before { content: '\\eae8' }
+        .codicon-code:before { content: '\\eac4' }
         .codicon-terminal:before { content: '\\ea85' }
         .codicon-edit:before { content: '\\ea73' }
-        .codicon-selection:before { content: '\\eab2' }
+        .codicon-selection:before { content: '\\eb85' }
         .codicon-repo:before { content: '\\ea62' }
         .codicon-add:before { content: '\\ea60' }
         .codicon-close:before { content: '\\ea76' }
         .codicon-warning:before { content: '\\ea6c' }
         .codicon-trash:before { content: '\\ea81' }
-        .codicon-settings-gear:before { content: '\\ea7a' }
-        .codicon-attach:before { content: '\\eb16' }
-        .codicon-send:before { content: '\\ead5' }
-        .codicon-stop:before { content: '\\ead7' }
-        .codicon-file-text:before { content: '\\eb08' }
-        .codicon-markdown:before { content: '\\eb03' }
+        .codicon-gear:before { content: '\\eaf8' }
+        .codicon-settings-gear:before { content: '\\eb51' }
+        .codicon-attach:before { content: '\\ec34' }
+        .codicon-link:before { content: '\\eb15' }
+        .codicon-arrow-right:before { content: '\\ea9c' }
+        .codicon-play-circle:before { content: '\\eba6' }
+        .codicon-send:before { content: '\\ec0f' }
+        .codicon-stop:before { content: '\\ea87' }
+        .codicon-file-text:before { content: '\\ea7b' }
+        .codicon-markdown:before { content: '\\eb1d' }
         .codicon-json:before { content: '\\eb0f' }
         .codicon-source-control:before { content: '\\ea68' }
-        .codicon-database:before { content: '\\eb8c' }
-        .codicon-tools:before { content: '\\eb40' }
-        .codicon-symbol-namespace:before { content: '\\eb5e' }
+        .codicon-database:before { content: '\\eace' }
+        .codicon-tools:before { content: '\\eb6d' }
+        .codicon-symbol-namespace:before { content: '\\ea8b' }
 
         * {
             box-sizing: border-box;
@@ -1096,20 +1263,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             color: var(--vscode-button-secondaryForeground);
         }
 
-        .chat-tab-close {
-            margin-left: auto;
-            opacity: 0.5;
-            font-size: 16px;
-            line-height: 1;
-            padding: 0 2px;
-        }
-
-        .chat-tab:hover .chat-tab-close {
-            opacity: 1;
-        }
-
         .chat-tab-menu {
-            margin-left: 4px;
+            margin-left: auto;
             opacity: 0;
             font-size: 14px;
             line-height: 1;
@@ -1667,7 +1822,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         .context-pills {
             display: flex;
             flex-wrap: wrap;
-            gap: 4px;
+            gap: 6px;
             padding: 8px 12px;
             border-bottom: 1px solid var(--vscode-panel-border);
             background-color: var(--vscode-editor-background);
@@ -1681,52 +1836,54 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         .context-pill {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 5px 10px;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 6px;
+            gap: 4px;
+            padding: 4px 8px;
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
             font-size: 12px;
             font-weight: 400;
             cursor: default;
             transition: all 0.15s ease;
             max-width: 250px;
+            opacity: 0.9;
         }
 
         .context-pill.implicit {
-            opacity: 0.8;
+            opacity: 0.6;
             border-style: dashed;
         }
 
         .context-pill.codebase {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            border-color: var(--vscode-focusBorder);
             font-weight: 500;
         }
 
         .context-pill:hover {
+            opacity: 1;
             background-color: var(--vscode-list-hoverBackground);
             border-color: var(--vscode-focusBorder);
         }
 
         .context-pill-icon {
-            flex-shrink: 0;
-            font-size: 14px;
-            margin-right: 2px;
+            display: none; /* Hide icons for cleaner look */
         }
 
         .context-pill-name {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            font-family: var(--vscode-font-family);
         }
 
         .context-pill-remove {
             margin-left: 4px;
             opacity: 0.5;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 14px;
             line-height: 1;
             flex-shrink: 0;
             transition: opacity 0.15s ease;
@@ -2132,49 +2289,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             margin-right: 4px;
         }
 
-        /* Bottom Controls Row - Below Input */
-        .bottom-controls {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 0 0 0;
-            font-size: 12px;
-        }
-
-        /* Model selector with pill style */
-        .model-selector-bottom {
-            margin-left: auto;
-            border: 1px solid var(--vscode-button-border, transparent);
-            border-radius: 4px;
-            overflow: hidden;
-            height: 24px;
-            background-color: var(--vscode-button-secondaryBackground);
-        }
-
-        .model-selector-bottom.hidden {
-            display: none;
-        }
-
+        /* Old bottom controls - hidden since model selector is now inline */
+        .bottom-controls,
+        .model-selector-bottom,
         .model-select-bottom {
-            padding: 3px 10px;
-            background-color: transparent;
-            color: var(--vscode-button-secondaryForeground);
-            border: none;
-            font-size: 11px;
-            font-weight: 400;
-            cursor: pointer;
-            transition: all 0.1s;
-            height: 100%;
-            min-width: 120px;
-        }
-
-        .model-select-bottom:hover {
-            background: var(--vscode-button-secondaryHoverBackground);
-        }
-
-        .model-select-bottom:focus {
-            outline: 1px solid var(--vscode-focusBorder);
-            outline-offset: -1px;
+            display: none !important;
         }
 
         /* Hash Mention Autocomplete */
@@ -2257,38 +2376,97 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         .add-context-btn {
-            padding: 5px 12px;
-            background: var(--vscode-input-background);
-            border: 1px solid var(--vscode-input-border);
-            color: var(--vscode-input-foreground);
+            padding: 4px 8px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            color: var(--vscode-foreground);
             cursor: pointer;
             font-size: 12px;
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
             font-weight: 400;
             transition: all 0.15s ease;
-            border-radius: 6px;
+            border-radius: 4px;
+            opacity: 0.9;
         }
 
         .add-context-btn:hover {
+            opacity: 1;
             background-color: var(--vscode-list-hoverBackground);
             border-color: var(--vscode-focusBorder);
         }
 
         .add-context-btn .codicon {
-            font-size: 14px;
+            font-size: 12px;
         }
 
         .input-text-area {
-            display: flex;
-            gap: 6px;
-            align-items: flex-end;
             padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .input-bottom-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0;
+        }
+
+        .model-select-inline {
+            padding: 4px 8px;
+            background-color: var(--vscode-dropdown-background);
+            color: var(--vscode-dropdown-foreground);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            outline: none;
+            min-width: 120px;
+            max-width: 200px;
+        }
+
+        .model-select-inline:hover {
+            background-color: var(--vscode-list-hoverBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .model-select-inline:focus {
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .config-btn-inline {
+            padding: 4px;
+            background: transparent;
+            border: none;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            font-size: 16px;
+            font-family: 'codicon';
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+            width: 24px;
+            height: 24px;
+        }
+
+        .config-btn-inline .codicon {
+            font-family: 'codicon' !important;
+            font-size: 16px;
+        }
+
+        .config-btn-inline:hover {
+            opacity: 1;
+            color: var(--vscode-focusBorder);
         }
 
         textarea {
-            flex: 1;
+            width: 100%;
             padding: 0;
             border: none;
             background: transparent;
@@ -2297,9 +2475,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             font-size: 13px;
             resize: none;
             outline: none;
-            min-height: 24px;
+            min-height: 48px;
             max-height: 120px;
-            line-height: 1.4;
+            line-height: 1.5;
         }
 
         textarea:focus {
@@ -2307,21 +2485,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         button.send-btn {
-            padding: 4px 6px;
-            background-color: #28a745;
-            color: white;
+            padding: 4px;
+            background: transparent;
+            color: var(--vscode-foreground);
             border: none;
-            border-radius: 6px;
+            border-radius: 4px;
             cursor: pointer;
             font-size: 16px;
-            font-weight: normal;
-            line-height: 1;
+            font-family: 'codicon';
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s;
-            width: 32px;
-            height: 32px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+            width: 24px;
+            height: 24px;
+        }
+
+        button.send-btn:hover {
+            opacity: 1;
+        }
+
+        button.send-btn .codicon {
+            font-family: 'codicon' !important;
+            font-size: 16px;
         }
 
         button.stop-btn {
@@ -2347,10 +2534,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         button.stop-btn:hover {
             background-color: var(--vscode-inputValidation-errorBorder);
-        }
-
-        button.send-btn:hover {
-            background-color: #218838;
         }
 
         button.send-btn:disabled {
@@ -2470,8 +2653,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             display: none;
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.0/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js"></script>
+    <script>${this.getLocalLibraryScript('marked')}</script>
+    <script>${this.getLocalLibraryScript('highlight.js')}</script>
     <script>
         // Configure marked to use highlight.js
         marked.setOptions({
@@ -2508,9 +2691,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <!-- Chat Tabs -->
     <div class="chat-tabs" id="chatTabs">
         <button class="new-chat-btn" id="newChatBtn" title="New Chat">+</button>
-        <button class="config-btn" id="configBtn" title="Model Configuration">
-            <span class="codicon codicon-settings-gear"></span>
-        </button>
     </div>
 
     <!-- Header with settings -->
@@ -2520,7 +2700,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         </div>
         <div class="header-actions">
             <button class="icon-btn" id="clearBtn" title="Clear Chat"><span class="codicon codicon-trash"></span></button>
-            <button class="icon-btn" id="configBtn" title="Settings"><span class="codicon codicon-settings-gear"></span></button>
         </div>
     </div>
 
@@ -2611,7 +2790,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         <div class="input-wrapper">
             <div class="input-top-bar">
                 <button class="add-context-btn" id="addContextBtn">
-                    <span class="codicon codicon-attach"></span>
+                    <span class="codicon codicon-link"></span>
                     <span>Add Context</span>
                 </button>
             </div>
@@ -2619,19 +2798,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 <textarea
                     id="messageInput"
                     placeholder="Ask a question... (type # for context)"
-                    rows="1"
+                    rows="2"
                 ></textarea>
-                <button class="send-btn" id="sendBtn">▶</button>
-                <button class="stop-btn hidden" id="stopBtn" title="Stop generation"><span class="codicon codicon-stop"></span></button>
-            </div>
-        </div>
-
-        <!-- Model Selector Below -->
-        <div class="bottom-controls">
-            <div class="model-selector-bottom" id="modelSelector">
-                <select id="modelSelect" class="model-select-bottom">
-                    <option value="">Loading...</option>
-                </select>
+                <div class="input-bottom-controls">
+                    <select id="modelSelect" class="model-select-inline" title="Select Model">
+                        <option value="">Loading...</option>
+                    </select>
+                    <button class="config-btn-inline" id="configBtn" title="Model Configuration">
+                        <span class="codicon codicon-gear"></span>
+                    </button>
+                    <button class="send-btn" id="sendBtn" title="Send Message">
+                        <span class="codicon codicon-play-circle"></span>
+                    </button>
+                    <button class="stop-btn hidden" id="stopBtn" title="Stop generation">
+                        <span class="codicon codicon-stop"></span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -2645,7 +2827,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const clearBtn = document.getElementById('clearBtn');
         const configBtn = document.getElementById('configBtn');
         const thinking = document.getElementById('thinking');
-        const modelSelector = document.getElementById('modelSelector');
         const modelSelect = document.getElementById('modelSelect');
         const contextPills = document.getElementById('contextPills');
         const hashAutocomplete = document.getElementById('hashAutocomplete');
@@ -2815,18 +2996,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             };
             dropdown.appendChild(renameItem);
 
-            // Delete option (if not the only tab)
-            const sessions = chatTabs.querySelectorAll('.chat-tab-wrapper');
-            if (sessions.length > 1) {
-                const deleteItem = document.createElement('div');
-                deleteItem.className = 'tab-menu-item';
-                deleteItem.textContent = 'Delete';
-                deleteItem.onclick = () => {
-                    dropdown.remove();
-                    showDeleteConfirmation(sessionId);
-                };
-                dropdown.appendChild(deleteItem);
-            }
+            // Delete option (always available now)
+            const deleteItem = document.createElement('div');
+            deleteItem.className = 'tab-menu-item';
+            deleteItem.textContent = 'Delete';
+            deleteItem.onclick = () => {
+                dropdown.remove();
+                showDeleteConfirmation(sessionId);
+            };
+            dropdown.appendChild(deleteItem);
 
             // Position the dropdown relative to the menu button
             // Append to body to avoid clipping issues
@@ -2889,18 +3067,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 };
                 tab.appendChild(menuBtn);
 
-                // Add close button for non-active tabs or if there's more than one tab
-                if (sessions.length > 1) {
-                    const closeBtn = document.createElement('span');
-                    closeBtn.className = 'chat-tab-close';
-                    closeBtn.textContent = '×';
-                    closeBtn.onclick = (e) => {
-                        e.stopPropagation();
-                        // Show custom confirmation modal
-                        showDeleteConfirmation(session.id);
-                    };
-                    tab.appendChild(closeBtn);
-                }
+                // Removed close button - delete is now in kebab menu only
 
                 // Click handler to switch sessions
                 tab.onclick = () => {
@@ -3030,8 +3197,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             hashAutocomplete.classList.add('active');
             selectedHashIndex = 0;
             updateHashSelection();
-
-            console.log('Hash autocomplete should be visible now');
         }
 
         function hideHashAutocomplete() {
@@ -3140,10 +3305,62 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             vscode.postMessage({ type: 'stopGeneration' });
         });
 
-        // New chat button
-        newChatBtn.addEventListener('click', () => {
-            vscode.postMessage({ type: 'newSession' });
+        // New chat button - show menu on click
+        newChatBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showNewChatMenu();
         });
+
+        function showNewChatMenu() {
+            // Remove any existing menu
+            const existingMenu = document.querySelector('.new-chat-menu');
+            if (existingMenu) {
+                existingMenu.remove();
+                return; // Toggle off if already open
+            }
+
+            // Create dropdown menu
+            const dropdown = document.createElement('div');
+            dropdown.className = 'tab-menu-dropdown new-chat-menu active';
+
+            // New Chat option
+            const newChatItem = document.createElement('div');
+            newChatItem.className = 'tab-menu-item';
+            newChatItem.textContent = 'New Chat';
+            newChatItem.onclick = () => {
+                dropdown.remove();
+                vscode.postMessage({ type: 'newSession' });
+            };
+            dropdown.appendChild(newChatItem);
+
+            // Clear All Chats option
+            const clearAllItem = document.createElement('div');
+            clearAllItem.className = 'tab-menu-item';
+            clearAllItem.style.color = 'var(--vscode-errorForeground)';
+            clearAllItem.textContent = 'Clear All Chats...';
+            clearAllItem.onclick = () => {
+                dropdown.remove();
+                vscode.postMessage({ type: 'clearAllSessions' });
+            };
+            dropdown.appendChild(clearAllItem);
+
+            // Position the dropdown
+            document.body.appendChild(dropdown);
+            const rect = newChatBtn.getBoundingClientRect();
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = (rect.bottom + 4) + 'px';
+            dropdown.style.left = rect.left + 'px';
+
+            // Close on click outside
+            setTimeout(() => {
+                document.addEventListener('click', function closeMenu(e) {
+                    if (!dropdown.contains(e.target)) {
+                        dropdown.remove();
+                        document.removeEventListener('click', closeMenu);
+                    }
+                });
+            }, 0);
+        }
 
         // Clear button (if it exists in header)
         if (clearBtn) {
@@ -3552,7 +3769,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             const content = messageInput.value.trim();
             if (!content) return;
 
-            if (!hasContext) {
+            // Check if we have context by checking both the flag and the actual context items array
+            if (!hasContext && contextItems.length === 0) {
                 // Show inline error instead of alert (sandboxed environment)
                 const errorDiv = document.createElement('div');
                 errorDiv.className = 'error-message';
@@ -3845,18 +4063,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     if (oldInfo) oldInfo.remove();
 
                     // Populate model dropdown
-                    if (message.models && message.models.length > 1) {
-                        modelSelector.classList.remove('hidden');
+                    if (message.models && message.models.length > 0) {
                         modelSelect.innerHTML = message.models.map(m =>
                             \`<option value="\${m.name}" \${m.name === message.currentModel ? 'selected' : ''}>\${m.name}</option>\`
                         ).join('');
                         currentModelName = message.currentModel || message.models[0].name;
                         // Find and store the current model config with pricing
                         currentModelConfig = message.models.find(m => m.name === currentModelName) || message.models[0];
+
+                        // Show/hide the model selector based on number of models
+                        if (message.models.length === 1) {
+                            modelSelect.style.display = 'none';
+                        } else {
+                            modelSelect.style.display = '';
+                        }
                     } else {
-                        modelSelector.classList.add('hidden');
-                        currentModelName = message.models[0]?.name || 'Claude';
-                        currentModelConfig = message.models?.[0] || null;
+                        currentModelName = 'Claude';
+                        currentModelConfig = null;
                     }
                     break;
 
@@ -3871,17 +4094,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
                 case 'modelsUpdated':
                     // Config was reloaded - update model dropdown
-                    if (message.models && message.models.length > 1) {
-                        modelSelector.classList.remove('hidden');
+                    if (message.models && message.models.length > 0) {
                         modelSelect.innerHTML = message.models.map(m =>
                             \`<option value="\${m.name}" \${m.name === (message.currentModel?.name || message.models[0].name) ? 'selected' : ''}>\${m.name}</option>\`
                         ).join('');
                         currentModelName = message.currentModel?.name || message.models[0].name;
                         currentModelConfig = message.currentModel || message.models[0];
-                    } else if (message.models && message.models.length === 1) {
-                        modelSelector.classList.add('hidden');
-                        currentModelName = message.models[0]?.name || 'Model';
-                        currentModelConfig = message.models[0] || null;
+
+                        // Show/hide the model selector based on number of models
+                        if (message.models.length === 1) {
+                            modelSelect.style.display = 'none';
+                        } else {
+                            modelSelect.style.display = '';
+                        }
                     }
                     break;
 

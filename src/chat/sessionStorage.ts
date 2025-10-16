@@ -50,8 +50,6 @@ export class SessionStorage {
 
             // Atomic rename - prevents corruption if interrupted
             await fs.rename(tempPath, filePath);
-
-            console.log(`✅ Saved session ${session.id} (${session.messages.length} messages) to ${filePath}`);
         } catch (error) {
             // Clean up temp file if it exists
             try {
@@ -74,12 +72,10 @@ export class SessionStorage {
         try {
             const json = await fs.readFile(filePath, 'utf-8');
             const session = JSON.parse(json) as ChatSession;
-            console.log(`✅ Loaded session ${sessionId} (${session.messages.length} messages) from ${filePath}`);
             return session;
         } catch (error: any) {
             if (error.code === 'ENOENT') {
                 // File doesn't exist - not an error
-                console.log(`ℹ️ Session file not found: ${filePath}`);
                 return null;
             }
 
@@ -126,7 +122,6 @@ export class SessionStorage {
                 }
             }
 
-            console.log(`📂 Found ${sessionIds.length} session files in ${this.storageDir}`);
             return sessionIds;
         } catch (error) {
             console.error('❌ Failed to list sessions:', error);
