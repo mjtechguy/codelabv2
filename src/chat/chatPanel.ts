@@ -510,7 +510,7 @@ export class ChatPanel {
     <div class="chat-container" id="chatContainer">
         <div class="message assistant">
             <div class="message-header">Assistant</div>
-            <div class="message-content">👋 Hi! I'm here to help you with this tutorial. Ask me anything about the content, commands, or concepts covered.</div>
+            <div class="message-content">Hi! I'm VSLabsAI. I'm here to help you with this tutorial. Ask me anything about the content, commands, or concepts covered.</div>
         </div>
     </div>
 
@@ -646,7 +646,7 @@ export class ChatPanel {
                     chatContainer.innerHTML = \`
                         <div class="message assistant">
                             <div class="message-header">Assistant</div>
-                            <div class="message-content">👋 Hi! I'm here to help you with this tutorial. Ask me anything about the content, commands, or concepts covered.</div>
+                            <div class="message-content">Hi! I'm VSLabsAI. I'm here to help you with this tutorial. Ask me anything about the content, commands, or concepts covered.</div>
                         </div>
                     \`;
                     break;

@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { marked } from 'marked';
-import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -40,7 +39,13 @@ export class MDCLPreviewPanel {
         document: vscode.TextDocument,
         executor: CommandExecutor
     ): MDCLPreviewPanel {
-        const column = vscode.ViewColumn.Beside;
+        // Check user mode to determine column placement
+        const config = vscode.workspace.getConfiguration('mdcl');
+        const userMode = config.get<string>('userMode', 'student');
+
+        // Student mode: Use Active column (replaces current view)
+        // Creator mode: Use Beside column (shows side-by-side)
+        const column = userMode === 'student' ? vscode.ViewColumn.Active : vscode.ViewColumn.Beside;
 
         // If we already have a panel, show it.
         if (MDCLPreviewPanel.currentPanel) {
@@ -99,24 +104,11 @@ export class MDCLPreviewPanel {
         hljs.registerLanguage('ts', typescript);
         hljs.registerLanguage('py', python);
 
-        // Configure marked with syntax highlighting
-        marked.use(
-            markedHighlight({
-                langPrefix: 'hljs language-',
-                highlight(code, lang) {
-                    // If language exists, use it; otherwise return unhighlighted code
-                    if (lang && hljs.getLanguage(lang)) {
-                        try {
-                            return hljs.highlight(code, { language: lang }).value;
-                        } catch (err) {
-                            console.warn('Highlight.js error for language', lang, err);
-                        }
-                    }
-                    // Return the code without highlighting for unknown languages
-                    return code;
-                }
-            })
-        );
+        // Configure marked for basic rendering (syntax highlighting will be handled by our command processing)
+        marked.setOptions({
+            breaks: true,
+            gfm: true
+        });
 
         // Initial update
         this.update();
@@ -264,8 +256,22 @@ export class MDCLPreviewPanel {
             return `\`\`\`\n${blockId}\n\`\`\``;
         });
 
+        // First, convert regular code blocks with languages to display-only command blocks
+        // This ensures they get language badges like command blocks
+        const regularCodeBlockRegex = /```(\w+)\n([\s\S]*?)```/g;
+        processedContent = processedContent.replace(regularCodeBlockRegex, (match, language, blockContent) => {
+            // Skip if this already has a command (execute, copy, open)
+            if (match.includes('{{')) {
+                return match;
+            }
+            // Convert to a display-only block with the special {{ display }} command
+            return `\`\`\`${language}{{ display }}\n${blockContent}\`\`\``;
+        });
+
         // Updated regex to support language specification: ```python{{ execute }}
-        const blockCommandRegex = /```(\w+)?\{\{\s*(execute|copy|open)(?:\s+(?:['"]([^'"]+)['"]|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}\s*\n([^`]*)```/g;
+        // Changed ([^`]*) to ([\s\S]*?) to properly handle backticks within code blocks
+        // Now also includes 'display' as a valid action
+        const blockCommandRegex = /```(\w+)?\{\{\s*(execute|copy|open|display)(?:\s+(?:['"]([^'"]+)['"]|([^\s}]+)))?(?:\s+(interrupt))?\s*\}\}\s*\n([\s\S]*?)```/g;
 
         processedContent = processedContent.replace(blockCommandRegex, (match, language, action, quotedTerminal, unquotedTerminal, interrupt, blockContent) => {
             // Extract commands from the block
@@ -289,7 +295,8 @@ export class MDCLPreviewPanel {
                 action: action || 'execute',
                 terminal: quotedTerminal || unquotedTerminal,
                 interrupt: interrupt === 'interrupt' || unquotedTerminal === 'interrupt',
-                language: language  // Store language for syntax highlighting
+                language: language,  // Store language for syntax highlighting
+                originalContent: blockContent  // Store the original block content for syntax highlighting
             };
 
             // Store block data for later processing
@@ -332,15 +339,26 @@ export class MDCLPreviewPanel {
                 const blockRegex = new RegExp(`<pre><code[^>]*>${blockId}\\s*</code></pre>`, 'g');
 
                 htmlContent = htmlContent.replace(blockRegex, () => {
-                    const { commands, action, terminal, interrupt, language } = commandData;
+                    const { commands, action, terminal, interrupt, language, originalContent } = commandData;
 
                     // Create command object
+                    // For copy/open: use original content if available to preserve formatting
                     // For execute: join with && to chain commands
-                    // For copy/open: join with newlines to preserve formatting
+                    // For display: no command needed (display only)
                     let joinedCommands: string;
-                    if (action === 'execute') {
+                    let showButton = true;  // Flag to control button visibility
+
+                    if (action === 'display') {
+                        // Display-only blocks don't need commands or buttons
+                        showButton = false;
+                        joinedCommands = '';
+                    } else if (action === 'execute') {
                         joinedCommands = commands.join(' && ');
+                    } else if ((action === 'copy' || action === 'open') && language && originalContent) {
+                        // For copy/open with syntax highlighting, use original content to preserve formatting
+                        joinedCommands = originalContent.trim();
                     } else {
+                        // Fallback to joining commands with newlines
                         joinedCommands = commands.join('\n');
                     }
 
@@ -369,18 +387,58 @@ export class MDCLPreviewPanel {
                     } else if (action === 'open') {
                         buttonClass = 'open-btn';
                         buttonText = 'Open All';
+                    } else if (action === 'display') {
+                        // Display-only blocks don't show a button
+                        showButton = false;
                     }
 
                     // Display commands with syntax highlighting if language is specified
                     let displayCommands: string;
-                    if (language) {
-                        // Apply syntax highlighting to the entire block
-                        const codeText = commands.join('\n');
-                        const lang = hljs.getLanguage(language) ? language : 'plaintext';
-                        const highlighted = hljs.highlight(codeText, { language: lang }).value;
-                        displayCommands = `<pre><code class="hljs language-${lang}">${highlighted}</code></pre>`;
+                    let languageBadge = '';
+
+                    if (language && originalContent) {
+                        // For syntax-highlighted blocks, show the entire block as highlighted code
+                        // Use the original block content for proper syntax highlighting
+                        const codeText = originalContent.trim();
+                        // Check if language is registered, fallback to plaintext if not
+                        const isLanguageRegistered = hljs.getLanguage(language) !== undefined;
+                        const lang = isLanguageRegistered ? language : 'plaintext';
+
+                        // Create a language badge with proper display name
+                        const displayNames: { [key: string]: string } = {
+                            'javascript': 'JavaScript',
+                            'js': 'JavaScript',
+                            'typescript': 'TypeScript',
+                            'ts': 'TypeScript',
+                            'python': 'Python',
+                            'py': 'Python',
+                            'bash': 'Bash',
+                            'sh': 'Shell',
+                            'shell': 'Shell',
+                            'yaml': 'YAML',
+                            'yml': 'YAML',
+                            'json': 'JSON',
+                            'html': 'HTML',
+                            'xml': 'XML',
+                            'css': 'CSS',
+                            'sql': 'SQL',
+                            'plaintext': 'Plain Text'
+                        };
+
+                        const displayName = displayNames[lang.toLowerCase()] || lang.toUpperCase();
+                        languageBadge = `<div class="language-badge">${displayName}</div>`;
+
+                        try {
+                            const highlighted = hljs.highlight(codeText, { language: lang }).value;
+                            // The highlighted output is already HTML-safe, don't escape it
+                            displayCommands = `<pre><code class="hljs language-${lang}">${highlighted}</code></pre>`;
+                        } catch (err) {
+                            console.warn(`Failed to highlight code block for language '${language}':`, err);
+                            // Fallback to plain text if highlighting fails
+                            displayCommands = `<pre><code class="hljs">${this.escapeHtml(codeText)}</code></pre>`;
+                        }
                     } else {
-                        // No syntax highlighting - display as plain text
+                        // No syntax highlighting - display as plain text commands
                         displayCommands = commands.map((cmd: string) =>
                             `<div class="block-command-line"><code>${this.escapeHtml(cmd)}</code></div>`
                         ).join('');
@@ -391,11 +449,17 @@ export class MDCLPreviewPanel {
                     const isExecuted = this.executedCommands.has(commandId);
                     const executedClass = isExecuted ? ' executed' : '';
 
-                    return `<div class="command-block">
-                        ${displayCommands}
-                        <div class="block-execute-btn-container">
+                    // Build the button HTML only if showButton is true
+                    const buttonHtml = showButton
+                        ? `<div class="block-execute-btn-container">
                             <button class="${buttonClass} block-execute-btn${executedClass}" data-command='${JSON.stringify(cmdObj).replace(/'/g, '&#39;')}' data-command-id="${commandId}">${buttonText}</button>
-                        </div>
+                        </div>`
+                        : '';
+
+                    return `<div class="command-block">
+                        ${languageBadge}
+                        ${displayCommands}
+                        ${buttonHtml}
                     </div>`;
                 });
             });
@@ -665,12 +729,61 @@ export class MDCLPreviewPanel {
                         font-family: 'Courier New', Courier, monospace;
                         line-height: 1.6;
                         border-left: 4px solid var(--vscode-textLink-foreground);
+                        position: relative;
                     }
-                    .command-block code {
+                    .language-badge {
+                        position: absolute;
+                        top: -10px;
+                        right: 12px;
+                        background-color: var(--vscode-button-background);
+                        color: var(--vscode-button-foreground);
+                        padding: 2px 8px;
+                        border-radius: 3px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        text-transform: uppercase;
+                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+                    }
+                    /* Wrapper for regular code blocks with language badges */
+                    .code-block-wrapper {
+                        position: relative;
+                        margin: 16px 0;
+                    }
+                    .code-block-wrapper .language-badge {
+                        /* Inherits styles from .language-badge above */
+                        /* Adjust positioning for regular code blocks */
+                        top: 2px;
+                    }
+                    .code-block-wrapper pre {
+                        /* Ensure proper spacing for the badge */
+                        position: relative;
+                    }
+                    .command-block > .block-command-line > code {
+                        /* Only apply these styles to plain command lines, not syntax highlighted code */
                         background: none;
                         padding: 0;
                         color: var(--vscode-textPreformat-foreground);
                     }
+                    .command-block pre {
+                        /* Reset pre styles within command blocks */
+                        background: none;
+                        padding: 0;
+                        margin: 0;
+                    }
+                    .command-block pre code.hljs {
+                        /* Ensure hljs styles take precedence */
+                        background: none;
+                        padding: 0;
+                        /* Don't set color here - let hljs classes handle it */
+                    }
+                    /* Ensure hljs classes inside command blocks maintain their colors */
+                    .command-block .hljs-keyword { color: var(--vscode-symbolIcon-keywordForeground, #569CD6); }
+                    .command-block .hljs-string { color: var(--vscode-symbolIcon-stringForeground, #CE9178); }
+                    .command-block .hljs-function { color: var(--vscode-symbolIcon-functionForeground, #DCDCAA); }
+                    .command-block .hljs-number { color: var(--vscode-symbolIcon-variableForeground, #9CDCFE); }
+                    .command-block .hljs-comment { color: var(--vscode-editor-foreground); opacity: 0.6; }
                     .block-command-line {
                         padding: 4px 0;
                         margin: 2px 0;

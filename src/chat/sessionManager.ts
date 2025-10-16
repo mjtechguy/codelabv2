@@ -181,6 +181,17 @@ export class SessionManager {
     }
 
     /**
+     * Rename a session
+     */
+    public renameSession(id: string, newName: string): void {
+        const session = this.sessions.get(id);
+        if (session) {
+            session.name = newName;
+            this.saveSessions();
+        }
+    }
+
+    /**
      * Get session count
      */
     public getSessionCount(): number {

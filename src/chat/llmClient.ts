@@ -7,11 +7,29 @@ export class LLMClient {
         this.config = config;
     }
 
+    /**
+     * Check if the model is a reasoning model (o1, o3-mini, gpt-5, etc.)
+     * These models use max_completion_tokens instead of max_tokens
+     */
+    private isReasoningModel(modelName: string): boolean {
+        const reasoningModels = [
+            'o1',
+            'o3-mini',
+            'gpt-5',
+            'gpt-4-5',
+            'o1-mini',
+            'o1-preview'
+        ];
+        return reasoningModels.some(prefix => modelName.toLowerCase().includes(prefix));
+    }
+
     public async sendMessage(
         messages: ChatMessage[],
         onStream?: (chunk: string) => void,
         abortSignal?: AbortSignal
     ): Promise<string> {
+        const isReasoning = this.isReasoningModel(this.config.model);
+
         const requestBody: LLMRequest = {
             model: this.config.model,
             messages: messages.map(msg => ({
@@ -19,9 +37,15 @@ export class LLMClient {
                 content: msg.content
             })),
             temperature: this.config.temperature ?? 0.7,
-            max_tokens: this.config.maxTokens ?? 2000,
             stream: !!onStream
         };
+
+        // Use max_completion_tokens for reasoning models, max_tokens for others
+        if (isReasoning) {
+            (requestBody as any).max_completion_tokens = this.config.maxTokens ?? 2000;
+        } else {
+            requestBody.max_tokens = this.config.maxTokens ?? 2000;
+        }
 
         try {
             const response = await fetch(`${this.config.apiBase}/chat/completions`, {
@@ -112,12 +136,16 @@ export class LLMClient {
 
                         try {
                             const parsed: LLMStreamChunk = JSON.parse(data);
-                            const content = parsed.choices[0]?.delta?.content;
+                            const delta = parsed.choices[0]?.delta;
 
-                            if (content) {
-                                fullContent += content;
-                                onStream(content);
+                            // Skip reasoning tokens - only process actual content
+                            // Reasoning tokens come in delta.reasoning_content
+                            // We only want delta.content (visible output)
+                            if (delta && 'content' in delta && delta.content) {
+                                fullContent += delta.content;
+                                onStream(delta.content);
                             }
+                            // Ignore reasoning_content silently - these are internal thinking tokens
                         } catch (parseError) {
                             // Log more detailed error info for debugging
                             console.warn('Failed to parse stream chunk:', {
@@ -136,10 +164,12 @@ export class LLMClient {
                 if (data && data !== '[DONE]') {
                     try {
                         const parsed: LLMStreamChunk = JSON.parse(data);
-                        const content = parsed.choices[0]?.delta?.content;
-                        if (content) {
-                            fullContent += content;
-                            onStream(content);
+                        const delta = parsed.choices[0]?.delta;
+
+                        // Only process visible content, skip reasoning tokens
+                        if (delta && 'content' in delta && delta.content) {
+                            fullContent += delta.content;
+                            onStream(delta.content);
                         }
                     } catch (parseError) {
                         console.warn('Failed to parse final buffer chunk:', {

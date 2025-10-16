@@ -34,8 +34,8 @@
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/mdcl-icon.svg",
-          "dark": "./icons/mdcl-icon.svg"
+          "light": "./icons/mdcl-icon-custom.svg",
+          "dark": "./icons/mdcl-icon-custom.svg"
         }
       }
     ],
@@ -101,6 +101,12 @@
         "title": "Open Chat",
         "icon": "$(comment-discussion)",
         "category": "MDCL"
+      },
+      {
+        "command": "mdcl.toggleUserMode",
+        "title": "Toggle User Mode (Student/Creator)",
+        "icon": "$(account)",
+        "category": "MDCL"
       }
     ],
     "menus": {
@@ -156,6 +162,10 @@
         {
           "command": "mdcl.openChat",
           "when": "resourceExtname == .mdcl"
+        },
+        {
+          "command": "mdcl.toggleUserMode",
+          "when": "true"
         }
       ]
     },
@@ -195,6 +205,19 @@
           "type": "string",
           "default": ".codelab/config.yaml",
           "description": "Path to chat configuration file relative to workspace root"
+        },
+        "mdcl.userMode": {
+          "type": "string",
+          "enum": [
+            "student",
+            "creator"
+          ],
+          "default": "student",
+          "enumDescriptions": [
+            "Student Mode: Preview-only view when opening .mdcl files (source is hidden)",
+            "Training Creator Mode: Shows both source and preview when opening .mdcl files"
+          ],
+          "description": "User mode determines how .mdcl files are displayed"
         }
       }
     }
@@ -215,6 +238,7 @@
   },
   "dependencies": {
     "@types/js-yaml": "^4.0.9",
+    "@vscode/codicons": "^0.0.41",
     "gpt-tokenizer": "^3.2.0",
     "highlight.js": "^11.11.1",
     "marked": "^9.1.0",

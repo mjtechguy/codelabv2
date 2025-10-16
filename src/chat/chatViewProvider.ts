@@ -137,6 +137,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 case 'deleteSession':
                     await this.deleteSession(data.sessionId);
                     break;
+                case 'renameSession':
+                    await this.renameSession(data.sessionId);
+                    break;
+                case 'renameSessionInline':
+                    this.renameSessionInline(data.sessionId, data.newName);
+                    break;
                 case 'removeContext':
                     await this.removeContextItem(data.uri, data.isImplicit);
                     break;
@@ -519,16 +525,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async createNewSession() {
-        // Get name for new session
-        const name = await vscode.window.showInputBox({
-            prompt: 'Enter a name for the new chat session',
-            placeHolder: 'e.g., "Tutorial Part 1"',
-            value: `Chat ${this._sessionManager.getSessionCount() + 1}`
-        });
-
-        if (!name) {
-            return;
-        }
+        // Create session with auto-generated name
+        const name = `Chat ${this._sessionManager.getSessionCount() + 1}`;
 
         // Create session with current document as default context
         const contextUris = this._currentDocument ? [this._currentDocument.uri.toString()] : [];
@@ -594,7 +592,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         quickPick.canSelectMany = true;
         quickPick.placeholder = 'Select files or folders for context';
 
-        quickPick.onDidAccept(() => {
+        quickPick.onDidAccept(async () => {
             const selected = quickPick.selectedItems;
             if (selected.length === 0) {
                 quickPick.hide();
@@ -611,17 +609,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 const uris = selected.map(item => item.description || '');
                 this._sessionManager.updateSessionContext(activeSession.id, uris, contextType);
 
-                // Update UI
+                // Update UI without reloading the entire session
                 this.updateContextBadge();
-
-                // Reload session with new context
-                this.loadSession().catch(err => console.error('Failed to reload session:', err));
+                await this.updateContextDisplay();
             }
 
             quickPick.hide();
         });
 
         quickPick.show();
+    }
+
+    private async renameSession(sessionId: string) {
+        const session = this._sessionManager.getAllSessions().find(s => s.id === sessionId);
+        if (!session) return;
+
+        const newName = await vscode.window.showInputBox({
+            prompt: 'Enter new name for the chat session',
+            placeHolder: 'e.g., "Tutorial Part 1"',
+            value: session.name
+        });
+
+        if (newName && newName.trim()) {
+            this._sessionManager.renameSession(sessionId, newName.trim());
+            this.updateSessionsUI();
+        }
+    }
+
+    private renameSessionInline(sessionId: string, newName: string) {
+        if (newName && newName.trim()) {
+            this._sessionManager.renameSession(sessionId, newName.trim());
+            this.updateSessionsUI();
+        }
     }
 
     private async deleteSession(sessionId: string) {
@@ -645,6 +664,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private async removeContextItem(uri: string, isImplicit: boolean): Promise<void> {
         const session = this._sessionManager.getActiveSession();
         if (!session) return;
+
+        // Handle removing the entire codebase context
+        if (uri === 'workspace://entire-codebase') {
+            this._sessionManager.updateSessionContext(
+                session.id,
+                [],
+                'custom'
+            );
+            this.updateContextBadge();
+            await this.updateContextDisplay();
+            return;
+        }
 
         if (isImplicit) {
             // For implicit context, we just remove it from tracking
@@ -730,6 +761,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         console.log('Updating context display - explicit:', activeSession.contextUris.length, 'implicit:', activeSession.implicitContextUris?.length || 0);
 
         const contextItems: ContextItem[] = [];
+
+        // Check if entire codebase/workspace is added
+        if (activeSession.contextType === 'workspace') {
+            contextItems.push({
+                type: 'codebase' as any,
+                uri: 'workspace://entire-codebase',
+                name: 'Entire Codebase',
+                icon: 'codicon-repo',
+                isImplicit: false
+            });
+        }
 
         // Add explicit context items
         for (const uriStr of activeSession.contextUris) {
@@ -819,6 +861,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {
+        // Get the proper URI for the codicon font from bundled assets
+        const codiconUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'assets', 'fonts', 'codicon.ttf'));
+
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -829,7 +874,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         /* Codicon font for VS Code icons */
         @font-face {
             font-family: 'codicon';
-            src: url('vscode-resource:codicon.ttf') format('truetype');
+            src: url('${codiconUri}') format('truetype');
         }
 
         .codicon {
@@ -897,7 +942,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             padding: 0 8px;
             gap: 2px;
             overflow-x: auto;
+            overflow-y: visible;
             flex-shrink: 0;
+            position: relative;
+            z-index: 9999;
         }
 
         .chat-tab {
@@ -938,6 +986,77 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             opacity: 1;
         }
 
+        .chat-tab-menu {
+            margin-left: 4px;
+            opacity: 0;
+            font-size: 14px;
+            line-height: 1;
+            padding: 0 4px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .chat-tab:hover .chat-tab-menu {
+            opacity: 0.7;
+        }
+
+        .chat-tab-menu:hover {
+            opacity: 1 !important;
+        }
+
+        .tab-menu-dropdown {
+            background-color: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            display: none;
+            z-index: 999999;
+            min-width: 120px;
+        }
+
+        .tab-menu-dropdown.active {
+            display: block;
+        }
+
+        .tab-menu-item {
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--vscode-foreground);
+            transition: background-color 0.1s;
+        }
+
+        .tab-menu-item:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .chat-tab-wrapper {
+            position: relative;
+            display: flex;
+        }
+
+        .chat-tab-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .chat-tab-input {
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-focusBorder);
+            border-radius: 3px;
+            padding: 2px 4px;
+            font-size: 12px;
+            outline: none;
+            min-width: 60px;
+            max-width: 130px;
+        }
+
+        .chat-tab-input:focus {
+            border-color: var(--vscode-focusBorder);
+        }
+
         .new-chat-btn {
             padding: 4px 8px;
             background: transparent;
@@ -955,6 +1074,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         .new-chat-btn:hover {
+            background-color: var(--vscode-toolbar-hoverBackground);
+            opacity: 1;
+        }
+
+        .config-btn {
+            padding: 4px 8px;
+            background: transparent;
+            border: none;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 4px;
+            opacity: 0.7;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            margin-left: 4px;
+        }
+
+        .config-btn:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
             opacity: 1;
         }
@@ -1053,17 +1193,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         .message-footer {
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 4px 8px;
+            gap: 8px;
+            padding: 8px;
             font-size: 11px;
             color: var(--vscode-descriptionForeground);
-            opacity: 0.8;
         }
 
         .message-footer-meta {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
+        }
+
+        .message-footer-meta span {
+            padding: 3px 8px;
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: 1px solid var(--vscode-button-border, transparent);
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 400;
+            white-space: nowrap;
         }
 
         @keyframes slideIn {
@@ -1108,21 +1258,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         .copy-message-btn {
-            background: transparent;
-            border: 1px solid var(--vscode-panel-border);
-            color: var(--vscode-foreground);
+            background: var(--vscode-button-secondaryBackground);
+            border: 1px solid var(--vscode-button-border, transparent);
+            color: var(--vscode-button-secondaryForeground);
             cursor: pointer;
-            padding: 4px 12px;
+            padding: 3px 10px;
             border-radius: 4px;
             transition: all 0.2s;
-            font-size: 11px;
-            font-weight: normal;
+            font-size: 10px;
+            font-weight: 400;
             margin-left: auto;
+            white-space: nowrap;
         }
 
         .copy-message-btn:hover {
-            background: var(--vscode-toolbar-hoverBackground);
-            border-color: var(--vscode-focusBorder);
+            background: var(--vscode-button-secondaryHoverBackground);
         }
 
         .message.user .message-header {
@@ -1409,17 +1559,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         .context-pill {
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            padding: 3px 8px;
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            border: 1px solid var(--vscode-button-border, transparent);
-            border-radius: 4px;
+            gap: 6px;
+            padding: 5px 10px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 6px;
             font-size: 12px;
             font-weight: 400;
             cursor: default;
-            transition: all 0.1s;
-            max-width: 200px;
+            transition: all 0.15s ease;
+            max-width: 250px;
         }
 
         .context-pill.implicit {
@@ -1427,8 +1577,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             border-style: dashed;
         }
 
+        .context-pill.codebase {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            font-weight: 500;
+        }
+
         .context-pill:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
+            background-color: var(--vscode-list-hoverBackground);
+            border-color: var(--vscode-focusBorder);
         }
 
         .context-pill-icon {
@@ -1444,16 +1601,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         .context-pill-remove {
-            margin-left: 2px;
-            opacity: 0.6;
+            margin-left: 4px;
+            opacity: 0.5;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 16px;
             line-height: 1;
             flex-shrink: 0;
+            transition: opacity 0.15s ease;
         }
 
         .context-pill-remove:hover {
             opacity: 1;
+            color: var(--vscode-errorForeground);
         }
 
         /* Confirmation Modal */
@@ -1581,39 +1740,68 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         /* Context Menu Dropdown */
-        .context-menu {
-            position: absolute;
-            bottom: 100%;
-            left: 0;
-            right: 0;
-            background-color: var(--vscode-dropdown-background);
-            border: 1px solid var(--vscode-dropdown-border);
-            border-radius: 6px;
-            max-height: 400px;
-            overflow-y: auto;
-            display: none;
-            z-index: 1000;
-            margin-bottom: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        .input-top-bar {
+            position: relative;
         }
 
-        .context-menu.active {
-            display: block;
+        /* Context Menu Modal - Centered like VS Code Quick Open */
+        .context-menu-backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.4);
+            z-index: 999999;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 15vh;
+        }
+
+        .context-menu-backdrop.active {
+            display: flex;
+        }
+
+        .context-menu {
+            width: 500px;
+            max-width: 90vw;
+            background-color: var(--vscode-quickInput-background);
+            border: 1px solid var(--vscode-quickInput-border, var(--vscode-widget-border));
+            border-radius: 8px;
+            max-height: 60vh;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            animation: modalSlideIn 0.15s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .context-menu-search {
-            padding: 8px;
+            padding: 12px;
             border-bottom: 1px solid var(--vscode-widget-border);
+            flex-shrink: 0;
         }
 
         .context-menu-search input {
             width: 100%;
-            padding: 6px 8px;
+            padding: 8px 12px;
             background-color: var(--vscode-input-background);
             color: var(--vscode-input-foreground);
             border: 1px solid var(--vscode-input-border);
             border-radius: 4px;
-            font-size: 12px;
+            font-size: 13px;
             outline: none;
         }
 
@@ -1621,17 +1809,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             border-color: var(--vscode-focusBorder);
         }
 
+        .context-menu-content {
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+        }
+
         .context-menu-section {
             padding: 4px 0;
         }
 
         .context-menu-item {
-            padding: 6px 12px;
+            padding: 8px 16px;
             cursor: pointer;
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 12px;
+            gap: 10px;
+            font-size: 13px;
             color: var(--vscode-foreground);
             transition: background-color 0.1s;
         }
@@ -1670,13 +1864,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             font-size: 12px;
         }
 
-        /* Model selector with box */
+        /* Model selector with pill style */
         .model-selector-bottom {
             margin-left: auto;
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 6px;
+            border: 1px solid var(--vscode-button-border, transparent);
+            border-radius: 4px;
             overflow: hidden;
-            height: 26px;
+            height: 24px;
+            background-color: var(--vscode-button-secondaryBackground);
         }
 
         .model-selector-bottom.hidden {
@@ -1684,11 +1879,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         .model-select-bottom {
-            padding: 4px 10px;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
+            padding: 3px 10px;
+            background-color: transparent;
+            color: var(--vscode-button-secondaryForeground);
             border: none;
-            font-size: 12px;
+            font-size: 11px;
+            font-weight: 400;
             cursor: pointer;
             transition: all 0.1s;
             height: 100%;
@@ -1696,7 +1892,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         .model-select-bottom:hover {
-            background: var(--vscode-list-hoverBackground);
+            background: var(--vscode-button-secondaryHoverBackground);
         }
 
         .model-select-bottom:focus {
@@ -1784,22 +1980,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         .add-context-btn {
-            padding: 2px 6px;
-            background: transparent;
-            border: none;
-            color: var(--vscode-textLink-foreground);
+            padding: 5px 12px;
+            background: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            color: var(--vscode-input-foreground);
             cursor: pointer;
             font-size: 12px;
             display: flex;
             align-items: center;
-            gap: 4px;
-            font-weight: 500;
-            transition: all 0.1s;
-            border-radius: 3px;
+            gap: 6px;
+            font-weight: 400;
+            transition: all 0.15s ease;
+            border-radius: 6px;
         }
 
         .add-context-btn:hover {
-            background-color: var(--vscode-toolbar-hoverBackground);
+            background-color: var(--vscode-list-hoverBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .add-context-btn .codicon {
+            font-size: 14px;
         }
 
         .input-text-area {
@@ -1828,21 +2029,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             outline: none;
         }
 
-        button.send-btn,
-        button.stop-btn {
-            padding: 10px 14px;
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
+        button.send-btn {
+            padding: 4px 6px;
+            background-color: #28a745;
+            color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 18px;
+            font-size: 16px;
+            font-weight: normal;
+            line-height: 1;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.2s;
-            min-width: 44px;
-            min-height: 40px;
+            width: 32px;
+            height: 32px;
+        }
+
+        button.stop-btn {
+            padding: 6px;
+            background-color: var(--vscode-inputValidation-errorBackground);
+            color: var(--vscode-errorForeground);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            width: 32px;
+            height: 32px;
         }
 
         button.stop-btn {
@@ -1855,7 +2073,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         button.send-btn:hover {
-            background-color: var(--vscode-button-hoverBackground);
+            background-color: #218838;
         }
 
         button.send-btn:disabled {
@@ -2012,11 +2230,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     <!-- Chat Tabs -->
     <div class="chat-tabs" id="chatTabs">
-        <div class="chat-tab active" data-session-id="default">
-            <span>Chat 1</span>
-            <span class="chat-tab-close" style="display: none;">×</span>
-        </div>
         <button class="new-chat-btn" id="newChatBtn" title="New Chat">+</button>
+        <button class="config-btn" id="configBtn" title="Model Configuration">
+            <span class="codicon codicon-settings-gear"></span>
+        </button>
     </div>
 
     <!-- Header with settings -->
@@ -2057,37 +2274,41 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     </div>
 
     <div class="input-container">
-        <!-- Context Menu Dropdown -->
-        <div class="context-menu" id="contextMenu">
-            <div class="context-menu-search">
-                <input type="text" id="contextSearchInput" placeholder="Search for files and context to add to your request" />
-            </div>
-            <div class="context-menu-section">
-                <div class="context-menu-item" data-type="open-editors">
-                    <span class="context-menu-icon codicon codicon-file-text"></span>
-                    <span class="context-menu-label">Open Editors</span>
-                </div>
-                <div class="context-menu-item" data-type="files">
-                    <span class="context-menu-icon codicon codicon-folder"></span>
-                    <span class="context-menu-label">Files & Folders...</span>
-                </div>
-                <div class="context-menu-item" data-type="codebase">
-                    <span class="context-menu-icon codicon codicon-repo"></span>
-                    <span class="context-menu-label">Codebase</span>
-                </div>
-                <div class="context-menu-item" data-type="symbols">
-                    <span class="context-menu-icon codicon codicon-symbol-namespace"></span>
-                    <span class="context-menu-label">Symbols...</span>
-                </div>
-            </div>
-            <div class="context-menu-section" id="recentFiles">
-                <!-- Recent files will be added here -->
-            </div>
-        </div>
-
         <!-- Hash Autocomplete Dropdown -->
         <div class="hash-autocomplete" id="hashAutocomplete">
             <!-- Options will be added dynamically -->
+        </div>
+
+        <!-- Context Menu Modal - Centered and Decoupled -->
+        <div class="context-menu-backdrop" id="contextMenuBackdrop">
+            <div class="context-menu" id="contextMenu">
+                <div class="context-menu-search">
+                    <input type="text" id="contextSearchInput" placeholder="Search files and context..." />
+                </div>
+                <div class="context-menu-content">
+                    <div class="context-menu-section">
+                        <div class="context-menu-item" data-type="open-editors">
+                            <span class="context-menu-icon codicon codicon-file-text"></span>
+                            <span class="context-menu-label">Open Editors</span>
+                        </div>
+                        <div class="context-menu-item" data-type="files">
+                            <span class="context-menu-icon codicon codicon-folder"></span>
+                            <span class="context-menu-label">Files & Folders...</span>
+                        </div>
+                        <div class="context-menu-item" data-type="codebase">
+                            <span class="context-menu-icon codicon codicon-repo"></span>
+                            <span class="context-menu-label">Codebase</span>
+                        </div>
+                        <div class="context-menu-item" data-type="symbols">
+                            <span class="context-menu-icon codicon codicon-symbol-namespace"></span>
+                            <span class="context-menu-label">Symbols...</span>
+                        </div>
+                    </div>
+                    <div class="context-menu-section" id="recentFiles">
+                        <!-- Recent files will be added here -->
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Input Wrapper with Add Context -->
@@ -2104,7 +2325,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     placeholder="Ask a question... (type # for context)"
                     rows="1"
                 ></textarea>
-                <button class="send-btn" id="sendBtn"><span class="codicon codicon-send"></span></button>
+                <button class="send-btn" id="sendBtn">▶</button>
                 <button class="stop-btn hidden" id="stopBtn" title="Stop generation"><span class="codicon codicon-stop"></span></button>
             </div>
         </div>
@@ -2135,6 +2356,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const chatTabs = document.getElementById('chatTabs');
         const newChatBtn = document.getElementById('newChatBtn');
         const addContextBtn = document.getElementById('addContextBtn');
+        const contextMenuBackdrop = document.getElementById('contextMenuBackdrop');
         const contextMenu = document.getElementById('contextMenu');
         const contextSearchInput = document.getElementById('contextSearchInput');
         const recentFiles = document.getElementById('recentFiles');
@@ -2213,23 +2435,163 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
         };
 
+        // Function to start inline rename
+        function startInlineRename(sessionId, nameSpan) {
+            // Don't start rename if already in edit mode
+            if (nameSpan.querySelector('.chat-tab-input')) {
+                return;
+            }
+
+            const currentName = nameSpan.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'chat-tab-input';
+            input.value = currentName;
+
+            // Replace the text with the input
+            nameSpan.textContent = '';
+            nameSpan.appendChild(input);
+
+            // Focus and select all text
+            input.focus();
+            input.select();
+
+            // Handle blur (clicking away)
+            const finishRename = () => {
+                const newName = input.value.trim();
+                if (newName && newName !== currentName) {
+                    vscode.postMessage({
+                        type: 'renameSessionInline',
+                        sessionId: sessionId,
+                        newName: newName
+                    });
+                    nameSpan.textContent = newName;
+                } else {
+                    nameSpan.textContent = currentName;
+                }
+            };
+
+            input.addEventListener('blur', finishRename);
+
+            // Handle Enter key
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    input.blur();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    nameSpan.textContent = currentName;
+                }
+            });
+
+            // Stop clicks on input from bubbling to tab
+            input.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
+
+        // Function to show tab menu
+        function showTabMenu(sessionId, menuBtn) {
+            // Remove any existing menu
+            const existingMenu = document.querySelector('.tab-menu-dropdown');
+            if (existingMenu) {
+                existingMenu.remove();
+            }
+
+            // Create dropdown menu
+            const dropdown = document.createElement('div');
+            dropdown.className = 'tab-menu-dropdown active';
+
+            // Rename option
+            const renameItem = document.createElement('div');
+            renameItem.className = 'tab-menu-item';
+            renameItem.textContent = 'Rename';
+            renameItem.onclick = () => {
+                dropdown.remove();
+                // Find the tab and start inline rename
+                const tab = document.querySelector(\`.chat-tab[data-session-id="\${sessionId}"]\`);
+                if (tab) {
+                    const nameSpan = tab.querySelector('.chat-tab-name');
+                    if (nameSpan) {
+                        startInlineRename(sessionId, nameSpan);
+                    }
+                }
+            };
+            dropdown.appendChild(renameItem);
+
+            // Delete option (if not the only tab)
+            const sessions = chatTabs.querySelectorAll('.chat-tab-wrapper');
+            if (sessions.length > 1) {
+                const deleteItem = document.createElement('div');
+                deleteItem.className = 'tab-menu-item';
+                deleteItem.textContent = 'Delete';
+                deleteItem.onclick = () => {
+                    dropdown.remove();
+                    showDeleteConfirmation(sessionId);
+                };
+                dropdown.appendChild(deleteItem);
+            }
+
+            // Position the dropdown relative to the menu button
+            // Append to body to avoid clipping issues
+            document.body.appendChild(dropdown);
+
+            // Calculate position - show to the right of the kebab menu
+            const rect = menuBtn.getBoundingClientRect();
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = rect.top + 'px';
+            dropdown.style.left = (rect.right + 4) + 'px';
+            dropdown.style.right = 'auto';
+
+            // Close menu when clicking elsewhere
+            setTimeout(() => {
+                document.addEventListener('click', function closeMenu(e) {
+                    if (!dropdown.contains(e.target)) {
+                        dropdown.remove();
+                        document.removeEventListener('click', closeMenu);
+                    }
+                });
+            }, 0);
+        }
+
         // Function to update chat tabs
         function updateChatTabs(sessions, activeSessionId) {
             if (!chatTabs) return;
 
             // Clear existing tabs (except the new chat button)
-            const existingTabs = chatTabs.querySelectorAll('.chat-tab');
+            const existingTabs = chatTabs.querySelectorAll('.chat-tab-wrapper');
             existingTabs.forEach(tab => tab.remove());
 
             // Add tabs for each session
             sessions.forEach((session, index) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'chat-tab-wrapper';
+
                 const tab = document.createElement('div');
                 tab.className = 'chat-tab' + (session.id === activeSessionId ? ' active' : '');
                 tab.dataset.sessionId = session.id;
 
                 const nameSpan = document.createElement('span');
+                nameSpan.className = 'chat-tab-name';
                 nameSpan.textContent = session.name || \`Chat \${index + 1}\`;
+
+                // Double-click to rename
+                nameSpan.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    startInlineRename(session.id, nameSpan);
+                });
+
                 tab.appendChild(nameSpan);
+
+                // Add three-dot menu
+                const menuBtn = document.createElement('span');
+                menuBtn.className = 'chat-tab-menu';
+                menuBtn.innerHTML = '⋮';
+                menuBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    showTabMenu(session.id, menuBtn);
+                };
+                tab.appendChild(menuBtn);
 
                 // Add close button for non-active tabs or if there's more than one tab
                 if (sessions.length > 1) {
@@ -2251,8 +2613,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     }
                 };
 
+                wrapper.appendChild(tab);
                 // Insert before the new chat button
-                chatTabs.insertBefore(tab, newChatBtn);
+                chatTabs.insertBefore(wrapper, newChatBtn);
             });
         }
 
@@ -2272,8 +2635,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
             items.forEach((item, index) => {
                 const pill = document.createElement('div');
-                pill.className = 'context-pill' + (item.isImplicit ? ' implicit' : '');
-                pill.title = item.isImplicit ? 'Open file (automatically added)' : 'Explicit context';
+                let pillClass = 'context-pill';
+                if (item.isImplicit) {
+                    pillClass += ' implicit';
+                }
+                if (item.type === 'codebase') {
+                    pillClass += ' codebase';
+                }
+                pill.className = pillClass;
+                pill.title = item.type === 'codebase' ? 'Entire codebase context' :
+                            (item.isImplicit ? 'Open file (automatically added)' : 'Explicit context');
 
                 pill.innerHTML = \`
                     <span class="context-pill-icon codicon \${item.icon || 'codicon-file'}"></span>
@@ -2495,24 +2866,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         // Add Context button - opens context menu
-        addContextBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            toggleContextMenu();
-        });
+        if (addContextBtn) {
+            addContextBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleContextMenu();
+            });
+        }
 
-        // Close context menu when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!contextMenu.contains(e.target) && e.target !== addContextBtn) {
-                hideContextMenu();
-            }
-        });
+        // Close context menu when clicking on backdrop
+        if (contextMenuBackdrop) {
+            contextMenuBackdrop.addEventListener('click', (e) => {
+                // Only close if clicking the backdrop itself, not the menu
+                if (e.target === contextMenuBackdrop) {
+                    hideContextMenu();
+                }
+            });
+        }
 
         // Handle context menu item clicks
-        contextMenu.addEventListener('click', (e) => {
-            const item = e.target.closest('.context-menu-item');
-            if (item) {
-                const type = item.dataset.type;
-                handleContextMenuSelection(type);
+        if (contextMenu) {
+            contextMenu.addEventListener('click', (e) => {
+                const item = e.target.closest('.context-menu-item');
+                if (item) {
+                    const type = item.dataset.type;
+                    handleContextMenuSelection(type);
+                }
+            });
+        }
+
+        // ESC key to close modal
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && contextMenuBackdrop && contextMenuBackdrop.classList.contains('active')) {
+                hideContextMenu();
             }
         });
 
@@ -2524,7 +2909,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         function toggleContextMenu() {
-            if (contextMenu.classList.contains('active')) {
+            if (!contextMenuBackdrop) return;
+            if (contextMenuBackdrop.classList.contains('active')) {
                 hideContextMenu();
             } else {
                 showContextMenu();
@@ -2532,15 +2918,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         function showContextMenu() {
-            contextMenu.classList.add('active');
+            if (!contextMenuBackdrop) return;
+            contextMenuBackdrop.classList.add('active');
             if (contextSearchInput) {
-                contextSearchInput.focus();
+                // Focus input after animation starts
+                setTimeout(() => contextSearchInput.focus(), 50);
             }
             updateRecentFiles();
         }
 
         function hideContextMenu() {
-            contextMenu.classList.remove('active');
+            if (!contextMenuBackdrop) return;
+            contextMenuBackdrop.classList.remove('active');
             if (contextSearchInput) {
                 contextSearchInput.value = '';
             }
@@ -2657,7 +3046,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 // Show inline error instead of alert (sandboxed environment)
                 const errorDiv = document.createElement('div');
                 errorDiv.className = 'error-message';
-                errorDiv.textContent = 'Please select context first by clicking the ⊕ Context button below.';
+                errorDiv.textContent = 'Please select context first by typing # or clicking "Add Context" below.';
                 chatContainer.appendChild(errorDiv);
                 chatContainer.scrollTop = chatContainer.scrollHeight;
                 setTimeout(() => errorDiv.remove(), 5000);
@@ -2722,7 +3111,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     <div class="message-footer">
                         <div class="message-footer-meta">
                             \${tokenCostDisplay ? \`<span>\${tokenCostDisplay}</span>\` : ''}
-                            \${modelName ? \`<span>• \${modelName}</span>\` : ''}
+                            \${modelName ? \`<span>\${modelName}</span>\` : ''}
                         </div>
                         <button class="copy-message-btn" onclick="copyMessageContent(this)" title="Copy message">
                             Copy

@@ -8,7 +8,7 @@ import { ChatViewProvider } from './chat/chatViewProvider';
 
 let commandExecutor: CommandExecutor;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     console.log('🚀 VSLabsAI extension is now active!');
     console.log('Extension context:', {
         extensionPath: context.extensionPath,
@@ -17,8 +17,33 @@ export function activate(context: vscode.ExtensionContext) {
     });
     console.log('VS Code version:', vscode.version);
 
-    // Show activation message
-    vscode.window.showInformationMessage('VSLabsAI Extension Activated!');
+    // Check if this is first time activation or if user mode is not set
+    const config = vscode.workspace.getConfiguration('mdcl');
+    const hasSeenModePrompt = context.globalState.get<boolean>('hasSeenModePrompt', false);
+
+    if (!hasSeenModePrompt) {
+        // Show user mode selection prompt
+        const selection = await vscode.window.showInformationMessage(
+            'Welcome to VSLabsAI! Are you a student learning or a training creator?',
+            { modal: true, detail: 'Student Mode: View tutorials in preview-only mode\nCreator Mode: Edit and preview tutorials side-by-side' },
+            'I am a Student',
+            'I am a Training Creator'
+        );
+
+        // Set the user mode based on selection (default to student if cancelled)
+        const userMode = selection === 'I am a Training Creator' ? 'creator' : 'student';
+        await config.update('userMode', userMode, vscode.ConfigurationTarget.Global);
+        await context.globalState.update('hasSeenModePrompt', true);
+
+        // Show confirmation message
+        const modeLabel = userMode === 'student' ? 'Student' : 'Training Creator';
+        vscode.window.showInformationMessage(`VSLabsAI: ${modeLabel} Mode activated! You can change this in settings.`);
+    } else {
+        // Show activation message
+        const userMode = config.get<string>('userMode', 'student');
+        const modeLabel = userMode === 'student' ? 'Student' : 'Training Creator';
+        vscode.window.showInformationMessage(`VSLabsAI: ${modeLabel} Mode active`);
+    }
 
     // Log all currently open documents
     vscode.workspace.textDocuments.forEach(doc => {
@@ -133,16 +158,35 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(openChatCommand);
 
+    // Add toggle user mode command
+    const toggleUserModeCommand = vscode.commands.registerCommand('mdcl.toggleUserMode', async () => {
+        const config = vscode.workspace.getConfiguration('mdcl');
+        const currentMode = config.get<string>('userMode', 'student');
+        const newMode = currentMode === 'student' ? 'creator' : 'student';
+
+        await config.update('userMode', newMode, vscode.ConfigurationTarget.Global);
+
+        const modeLabel = newMode === 'student' ? 'Student' : 'Training Creator';
+        vscode.window.showInformationMessage(`Switched to ${modeLabel} Mode. Reopen MDCL files to apply changes.`);
+
+        // If preview panel is open, dispose it so it will recreate with new settings
+        if (MDCLPreviewPanel.currentPanel) {
+            MDCLPreviewPanel.currentPanel.dispose();
+        }
+    });
+    context.subscriptions.push(toggleUserModeCommand);
+
     // Auto-open preview for MDCL files when they're first opened
     vscode.workspace.onDidOpenTextDocument(async (document) => {
         console.log('📄 Document opened:', document.uri.toString(), 'Language:', document.languageId);
 
         const config = vscode.workspace.getConfiguration('mdcl');
         const autoPreview = config.get<boolean>('autoOpenPreview', true);
+        const userMode = config.get<string>('userMode', 'student');
 
         if (autoPreview && document.languageId === 'mdcl' && !document.isUntitled) {
             // Small delay to let the editor become active
-            setTimeout(() => {
+            setTimeout(async () => {
                 const editor = vscode.window.activeTextEditor;
                 // Only create preview if this document is now the active editor
                 // AND we don't already have a preview panel
@@ -150,11 +194,34 @@ export function activate(context: vscode.ExtensionContext) {
                     editor.document.uri.toString() === document.uri.toString() &&
                     !MDCLPreviewPanel.currentPanel) {
                     console.log('🎭 Creating preview for newly opened MDCL file');
-                    MDCLPreviewPanel.createOrShow(
-                        context.extensionUri,
-                        editor.document,
-                        commandExecutor
-                    );
+
+                    if (userMode === 'student') {
+                        // Student mode: Show preview only and hide source
+                        // Store the document URI before creating preview
+                        const documentUri = editor.document.uri;
+
+                        MDCLPreviewPanel.createOrShow(
+                            context.extensionUri,
+                            editor.document,
+                            commandExecutor
+                        );
+
+                        // Close the source editor after preview is shown
+                        // Find and close the text editor for this document
+                        for (const visibleEditor of vscode.window.visibleTextEditors) {
+                            if (visibleEditor.document.uri.toString() === documentUri.toString()) {
+                                await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+                                break;
+                            }
+                        }
+                    } else {
+                        // Creator mode: Show both source and preview
+                        MDCLPreviewPanel.createOrShow(
+                            context.extensionUri,
+                            editor.document,
+                            commandExecutor
+                        );
+                    }
                 }
             }, 100);
         }
@@ -162,21 +229,47 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Handle preview creation/update when switching to MDCL files
     // This is the ONLY place where auto-preview happens to avoid duplicates
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
+    vscode.window.onDidChangeActiveTextEditor(async (editor) => {
         console.log('👁️ Active editor changed:', editor ? editor.document.uri.toString() : 'none');
 
         if (editor && editor.document.languageId === 'mdcl') {
             const config = vscode.workspace.getConfiguration('mdcl');
             const autoPreview = config.get<boolean>('autoOpenPreview', true);
-            console.log('🔄 MDCL file active, auto preview:', autoPreview);
+            const userMode = config.get<string>('userMode', 'student');
+            console.log('🔄 MDCL file active, auto preview:', autoPreview, 'mode:', userMode);
 
             if (autoPreview) {
-                console.log('🎭 Creating or updating preview panel');
-                MDCLPreviewPanel.createOrShow(
-                    context.extensionUri,
-                    editor.document,
-                    commandExecutor
-                );
+                if (userMode === 'student' && !MDCLPreviewPanel.currentPanel) {
+                    // Student mode: Create preview and close source
+                    // Only do this if preview doesn't exist yet
+                    console.log('🎭 Creating preview panel (student mode)');
+                    const documentUri = editor.document.uri;
+
+                    MDCLPreviewPanel.createOrShow(
+                        context.extensionUri,
+                        editor.document,
+                        commandExecutor
+                    );
+
+                    // Close the source editor after preview is shown
+                    setTimeout(async () => {
+                        for (const visibleEditor of vscode.window.visibleTextEditors) {
+                            if (visibleEditor.document.uri.toString() === documentUri.toString()) {
+                                // Close the group containing the source editor
+                                await vscode.commands.executeCommand('workbench.action.closeEditorsInGroup');
+                                break;
+                            }
+                        }
+                    }, 300);
+                } else {
+                    // Creator mode: Show both
+                    console.log('🎭 Creating or updating preview panel (creator mode)');
+                    MDCLPreviewPanel.createOrShow(
+                        context.extensionUri,
+                        editor.document,
+                        commandExecutor
+                    );
+                }
             }
         }
     });
